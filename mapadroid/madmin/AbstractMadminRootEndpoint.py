@@ -48,7 +48,7 @@ class AbstractMadminRootEndpoint(web.View, ABC):
         try:
             logger.debug("Waiting for response to {}", self.request.url)
             response = await super()._iter()
-            logger.success("Got response to {}", self.request.url)
+            logger.debug("Got response to {}", self.request.url)
             if self._commit_trigger:
                 logger.debug("Awaiting commit")
                 await session.commit()

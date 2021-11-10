@@ -1,7 +1,9 @@
 from aiohttp import web
+from loguru import logger
 
 from mapadroid.mad_apk.utils import stream_package
-from mapadroid.mitm_receiver.endpoints.AbstractMitmReceiverRootEndpoint import AbstractMitmReceiverRootEndpoint
+from mapadroid.mitm_receiver.endpoints.AbstractMitmReceiverRootEndpoint import \
+    AbstractMitmReceiverRootEndpoint
 
 
 class MadApkDownloadEndpoint(AbstractMitmReceiverRootEndpoint):
@@ -19,6 +21,9 @@ class MadApkDownloadEndpoint(AbstractMitmReceiverRootEndpoint):
         response = web.StreamResponse()
 
         data_generator, mimetype, filename = stream_package(self._session, self._get_storage_obj(), apk_type, apk_arch)
+        origin = self.request.headers.get("origin")
+        with logger.contextualize(identifier=origin, name="mad_apk_download"):
+            logger.info(f"Download of {apk_type}@{apk_arch} requested")
         response.content_type = mimetype
         response.headers['Content-Disposition'] = 'attachment; filename={}'.format(filename)
         await response.prepare(self.request)

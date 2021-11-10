@@ -196,8 +196,8 @@ class AbstractMitmBaseStrategy(AbstractWorkerStrategy, ABC):
                 await self._handle_proto_timeout(timestamp, position_type)
 
         if type_of_data_returned == ReceivedType.UNDEFINED:
-            logger.info("Timeout waiting for useful data. Type requested was {}, received {}",
-                        proto_to_wait_for, type_of_data_returned)
+            logger.warning("Timeout waiting for useful data. Type requested was {}, received {}",
+                           proto_to_wait_for, type_of_data_returned)
         else:
             logger.success("Got data of type {}", type_of_data_returned)
 
@@ -311,13 +311,13 @@ class AbstractMitmBaseStrategy(AbstractWorkerStrategy, ABC):
             self._worker_state.reboot_count += 1
             if self._worker_state.reboot_count > reboot_thresh \
                     and await self.get_devicesettings_value(MappingManagerDevicemappingKey.REBOOT, True):
-                logger.warning("Too many timeouts - Rebooting device")
+                logger.error("Too many timeouts - Rebooting device")
                 await self._reboot()
                 raise InternalStopWorkerException
 
             # self._mitm_mapper.
             self._worker_state.restart_count = 0
-            logger.warning("Too many timeouts - Restarting game")
+            logger.error("Too many timeouts - Restarting game")
             await self._restart_pogo(True)
 
     async def stop_pogo(self) -> bool:
@@ -419,6 +419,18 @@ class AbstractMitmBaseStrategy(AbstractWorkerStrategy, ABC):
                     and not self._worker_state.stop_worker_event.is_set():
                 logger.info("Retry check_windows while waiting for injection at count {}",
                             not_injected_count)
+                if not_injected_count == int(injection_thresh_reboot / 2):
+                    self.logger.info("Pogo running without apparent issues, but no data incoming halfway to the "
+                                     "reboot threshold - use worker specific setup stop/start")
+                    self._worker_specific_setup_stop()
+                    logger.info("Stopped, sleep 5 ...")
+                    await asyncio.sleep(5)
+                    self._worker_specific_setup_start()
+                    logger.info("Started, sleep 10 ...")
+                    await asyncio.sleep(10)
+                    logger.info("Cycle back to pogo ...")
+                    self._communicator.start_app("com.nianticlabs.pokemongo")
+                    await asyncio.sleep(5)
                 await self._handle_screen()
             not_injected_count += 1
             wait_time = 0
