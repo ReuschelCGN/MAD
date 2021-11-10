@@ -20,7 +20,8 @@ class MadApkDownloadEndpoint(AbstractMitmReceiverRootEndpoint):
         apk_type, apk_arch = parsed
         response = web.StreamResponse()
 
-        data_generator, mimetype, filename = stream_package(self._session, self._get_storage_obj(), apk_type, apk_arch)
+        data_generator, mimetype, filename = await stream_package(self._session, self._get_storage_obj(), apk_type,
+                                                                  apk_arch)
         origin = self.request.headers.get("origin")
         with logger.contextualize(identifier=origin, name="mad_apk_download"):
             logger.info(f"Download of {apk_type}@{apk_arch} requested")
