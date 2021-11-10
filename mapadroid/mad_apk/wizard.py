@@ -138,7 +138,7 @@ class APKWizard(object):
         Args:
             architecture (APKArch): Architecture of the package to download
         """
-        if not self.api_token:
+        if not self.storage.token:
             logger.warning(
                 "The MADdev API token (maddev_api_token) has not been configured in config.ini."
                 " Please configure this to use the wizard for downloading PokemonGo."
