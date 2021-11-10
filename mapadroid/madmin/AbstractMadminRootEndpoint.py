@@ -1,7 +1,7 @@
 import asyncio
 import json
 from abc import ABC
-from typing import Any, Optional, List, Dict
+from typing import Any, Dict, List, Optional
 
 from aiohttp import web
 from aiohttp.abc import Request
@@ -16,7 +16,8 @@ from mapadroid.mad_apk.abstract_apk_storage import AbstractAPKStorage
 from mapadroid.madmin import apiException
 from mapadroid.mapping_manager.MappingManager import MappingManager
 from mapadroid.utils.json_encoder import MADEncoder
-from mapadroid.utils.madGlobals import WebsocketWorkerTimeoutException, WebsocketWorkerConnectionClosedException
+from mapadroid.utils.madGlobals import (
+    WebsocketWorkerConnectionClosedException, WebsocketWorkerTimeoutException)
 from mapadroid.utils.questGen import QuestGen
 from mapadroid.utils.updater import DeviceUpdater
 from mapadroid.websocket.WebsocketServer import WebsocketServer
@@ -47,7 +48,7 @@ class AbstractMadminRootEndpoint(web.View, ABC):
         try:
             logger.debug("Waiting for response to {}", self.request.url)
             response = await super()._iter()
-            logger.success("Got response to {}", self.request.url)
+            logger.debug("Got response to {}", self.request.url)
             if self._commit_trigger:
                 logger.debug("Awaiting commit")
                 await session.commit()

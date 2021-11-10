@@ -7,31 +7,33 @@ from typing import Optional, Union
 from aiohttp import web
 from aioredis import Redis
 
-from mapadroid.data_handler.StandaloneMitmMapperAndStatsHandler import StandaloneMitmMapperAndStatsHandler
-from mapadroid.data_handler.mitm_data.AbstractMitmMapper import AbstractMitmMapper
-from mapadroid.data_handler.stats.AbstractStatsHandler import AbstractStatsHandler
-from mapadroid.data_handler.grpc.StatsHandlerServer import StatsHandlerServer
 from mapadroid.data_handler.grpc.MitmMapperServer import MitmMapperServer
+from mapadroid.data_handler.grpc.StatsHandlerServer import StatsHandlerServer
+from mapadroid.data_handler.mitm_data.AbstractMitmMapper import \
+    AbstractMitmMapper
 from mapadroid.data_handler.mitm_data.MitmMapperType import MitmMapperType
 from mapadroid.data_handler.mitm_data.RedisMitmMapper import RedisMitmMapper
+from mapadroid.data_handler.StandaloneMitmMapperAndStatsHandler import \
+    StandaloneMitmMapperAndStatsHandler
+from mapadroid.data_handler.stats.AbstractStatsHandler import \
+    AbstractStatsHandler
 from mapadroid.db.DbFactory import DbFactory
 from mapadroid.mad_apk import get_storage_obj
 from mapadroid.madmin.madmin import MADmin
 from mapadroid.mapping_manager.MappingManager import MappingManager
 from mapadroid.mapping_manager.MappingManagerServer import MappingManagerServer
-from mapadroid.mitm_receiver.MITMReceiver import MITMReceiver
 from mapadroid.mitm_receiver.MitmDataProcessorManager import \
     MitmDataProcessorManager
+from mapadroid.mitm_receiver.MITMReceiver import MITMReceiver
 from mapadroid.ocr.pogoWindows import PogoWindows
 from mapadroid.plugins.pluginBase import PluginCollection
 from mapadroid.utils.EnvironmentUtil import setup_loggers, setup_runtime
-from mapadroid.utils.SystemStatsUtil import get_system_infos
-from mapadroid.utils.logging import (LoggerEnums, get_logger,
-                                     init_logging)
+from mapadroid.utils.logging import LoggerEnums, get_logger, init_logging
 from mapadroid.utils.madGlobals import application_args, terminate_mad
 from mapadroid.utils.pogoevent import PogoEvent
 from mapadroid.utils.questGen import QuestGen
 from mapadroid.utils.rarity import Rarity
+from mapadroid.utils.SystemStatsUtil import get_system_infos
 from mapadroid.utils.updater import DeviceUpdater
 from mapadroid.webhook.webhookworker import WebhookWorker
 from mapadroid.websocket.WebsocketServer import WebsocketServer
@@ -239,6 +241,7 @@ async def start():
 if __name__ == "__main__":
     global application_args
     os.environ['LANGUAGE'] = application_args.language
+    os.environ['OMP_THREAD_LIMIT'] = "1"
     init_logging(application_args)
     setup_loggers()
     logger = get_logger(LoggerEnums.system)

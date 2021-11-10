@@ -2,14 +2,16 @@ import asyncio
 import math
 import time
 from abc import ABC, abstractmethod
-from typing import Optional, Tuple, Union, Dict
+from typing import Dict, Optional, Tuple, Union
 
 from loguru import logger
 
-from mapadroid.data_handler.mitm_data.AbstractMitmMapper import AbstractMitmMapper
+from mapadroid.data_handler.mitm_data.AbstractMitmMapper import \
+    AbstractMitmMapper
 from mapadroid.data_handler.mitm_data.holder.latest_mitm_data.LatestMitmDataEntry import \
     LatestMitmDataEntry
-from mapadroid.data_handler.stats.AbstractStatsHandler import AbstractStatsHandler
+from mapadroid.data_handler.stats.AbstractStatsHandler import \
+    AbstractStatsHandler
 from mapadroid.db.DbWrapper import DbWrapper
 from mapadroid.db.helper.TrsStatusHelper import TrsStatusHelper
 from mapadroid.db.model import SettingsArea, SettingsWalkerarea, TrsStatus
@@ -18,9 +20,8 @@ from mapadroid.mapping_manager.MappingManagerDevicemappingKey import \
     MappingManagerDevicemappingKey
 from mapadroid.ocr.pogoWindows import PogoWindows
 from mapadroid.ocr.screenPath import WordToScreenMatching
-from mapadroid.utils.DatetimeWrapper import DatetimeWrapper
-from mapadroid.utils.ProtoIdentifier import ProtoIdentifier
 from mapadroid.utils.collections import Location
+from mapadroid.utils.DatetimeWrapper import DatetimeWrapper
 from mapadroid.utils.geo import get_distance_of_two_points_in_meters
 from mapadroid.utils.madConstants import (
     FALLBACK_MITM_WAIT_TIMEOUT, MINIMUM_DISTANCE_ALLOWANCE_FOR_GMO,
@@ -30,12 +31,13 @@ from mapadroid.utils.madGlobals import (FortSearchResultTypes,
                                         PositionType, TransportType,
                                         WebsocketWorkerRemovedException,
                                         application_args)
+from mapadroid.utils.ProtoIdentifier import ProtoIdentifier
 from mapadroid.websocket.AbstractCommunicator import AbstractCommunicator
 from mapadroid.worker.ReceivedTypeEnum import ReceivedType
-from mapadroid.worker.WorkerState import WorkerState
-from mapadroid.worker.WorkerType import WorkerType
 from mapadroid.worker.strategy.AbstractWorkerStrategy import \
     AbstractWorkerStrategy
+from mapadroid.worker.WorkerState import WorkerState
+from mapadroid.worker.WorkerType import WorkerType
 
 
 class AbstractMitmBaseStrategy(AbstractWorkerStrategy, ABC):
@@ -186,8 +188,8 @@ class AbstractMitmBaseStrategy(AbstractWorkerStrategy, ABC):
                 await self._handle_proto_timeout(timestamp, position_type)
 
         if type_of_data_returned == ReceivedType.UNDEFINED:
-            logger.info("Timeout waiting for useful data. Type requested was {}, received {}",
-                        proto_to_wait_for, type_of_data_returned)
+            logger.warning("Timeout waiting for useful data. Type requested was {}, received {}",
+                           proto_to_wait_for, type_of_data_returned)
         else:
             logger.success("Got data of type {}", type_of_data_returned)
 
@@ -324,13 +326,13 @@ class AbstractMitmBaseStrategy(AbstractWorkerStrategy, ABC):
             self._worker_state.reboot_count += 1
             if self._worker_state.reboot_count > reboot_thresh \
                     and await self.get_devicesettings_value(MappingManagerDevicemappingKey.REBOOT, True):
-                logger.warning("Too many timeouts - Rebooting device")
+                logger.error("Too many timeouts - Rebooting device")
                 await self._reboot()
                 raise InternalStopWorkerException("Too many timeouts, reboot issued")
 
             # self._mitm_mapper.
             self._worker_state.restart_count = 0
-            logger.warning("Too many timeouts - Restarting game")
+            logger.error("Too many timeouts - Restarting game")
             await self._restart_pogo(True)
 
     async def stop_pogo(self) -> bool:
@@ -434,6 +436,18 @@ class AbstractMitmBaseStrategy(AbstractWorkerStrategy, ABC):
                     and not self._worker_state.stop_worker_event.is_set():
                 logger.info("Retry check_windows while waiting for injection at count {}",
                             not_injected_count)
+                if not_injected_count == int(injection_thresh_reboot / 2):
+                    self.logger.info("Pogo running without apparent issues, but no data incoming halfway to the "
+                                     "reboot threshold - use worker specific setup stop/start")
+                    self._worker_specific_setup_stop()
+                    logger.info("Stopped, sleep 5 ...")
+                    await asyncio.sleep(5)
+                    self._worker_specific_setup_start()
+                    logger.info("Started, sleep 10 ...")
+                    await asyncio.sleep(10)
+                    logger.info("Cycle back to pogo ...")
+                    self._communicator.start_app("com.nianticlabs.pokemongo")
+                    await asyncio.sleep(5)
                 await self._handle_screen()
             not_injected_count += 1
             wait_time = 0
