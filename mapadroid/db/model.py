@@ -595,6 +595,8 @@ class SettingsAreaPokestop(SettingsArea):
     max_distance = Column(Float)
     ignore_spinned_stops = Column(TINYINT(1))
     cleanup_every_spin = Column(TINYINT(1))
+    all_mons = Column(TINYINT(1), nullable=False, server_default=text("'0'"))
+    monlist_id = Column(ForeignKey('settings_monivlist.monlist_id'), index=True)
 
     settings_geofence = relationship('SettingsGeofence')
     settings_routecalc = relationship('SettingsRoutecalc')
