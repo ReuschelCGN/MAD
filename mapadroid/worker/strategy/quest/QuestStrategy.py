@@ -118,7 +118,7 @@ class QuestStrategy(AbstractMitmBaseStrategy, ABC):
                                       timestamp: int) -> Tuple[ReceivedType, Optional[object]]:
         type_of_data_found: ReceivedType = ReceivedType.UNDEFINED
         data_found: Optional[object] = None
-        # Check if we have clicked a gym or mon...
+        # Check if we have clicked a gym...
         gym_latest: Optional[LatestMitmDataEntry] = await self._mitm_mapper.request_latest(self._worker_state.origin,
                                                                                            key=str(
                                                                                                ProtoIdentifier.GYM_INFO.value),
@@ -127,15 +127,6 @@ class QuestStrategy(AbstractMitmBaseStrategy, ABC):
                 and gym_latest.timestamp_of_data_retrieval \
                 and gym_latest.timestamp_of_data_retrieval >= timestamp:
             type_of_data_found = ReceivedType.GYM
-            return type_of_data_found, data_found
-        encounter_latest: Optional[LatestMitmDataEntry] = await self._mitm_mapper.request_latest(
-            self._worker_state.origin,
-            key=str(ProtoIdentifier.ENCOUNTER.value),
-            timestamp_earliest=timestamp)
-        if encounter_latest \
-                and encounter_latest.timestamp_of_data_retrieval \
-                and encounter_latest.timestamp_of_data_retrieval >= timestamp:
-            type_of_data_found = ReceivedType.MON
             return type_of_data_found, data_found
         # when waiting for stop or spin data, it is enough to make sure
         # our data is newer than the latest of last quest received, last
@@ -775,6 +766,11 @@ class QuestStrategy(AbstractMitmBaseStrategy, ABC):
         scanmode = "quests"
         injected_settings["scanmode"] = scanmode
         ids_iv: List[int] = []
+        routemanager_settings = await self._mapping_manager.routemanager_get_settings(self._area_id)
+        if routemanager_settings is not None:
+            # TODO: Moving to async
+            ids_iv = self._mapping_manager.get_monlist(self._area_id)
+
         self._encounter_ids = {}
         await self._mitm_mapper.update_latest(worker=self._worker_state.origin, key="ids_encountered",
                                               value=self._encounter_ids)
@@ -797,7 +793,7 @@ class QuestStrategy(AbstractMitmBaseStrategy, ABC):
         stop_type: PositionStopType = await self._current_position_has_spinnable_stop(timestamp)
         type_received: ReceivedType = ReceivedType.UNDEFINED
         recheck_count = 0
-        timestamp_to_use_waiting_for_gmo: float = timestamp
+        timestamp_to_use_waiting_for_gmo: float = time.time()
         while stop_type in (PositionStopType.GMO_NOT_AVAILABLE, PositionStopType.GMO_EMPTY,
                             PositionStopType.NO_FORT) and not recheck_count > 2:
             recheck_count += 1
