@@ -59,9 +59,9 @@ mode_mapping = {
     },
     "pokestops": {
         "s2_cell_level": 13,
-        "range": 0.001,
+        "range": 70, # stop interaction radius is 80m
         "range_init": 980,
-        "max_count": 100000
+        "max_count": 1
     },
     "iv_mitm": {
         "range": 67,
@@ -584,7 +584,8 @@ class MappingManager(AbstractMappingManager):
                 # replace list name
                 area_settings['mon_ids_iv_raw'] = self.get_monlist(area_id)
             init_area: bool = False
-            if area.mode in ("mon_mitm", "raids_mitm", "pokestop") and area.init:
+            if area.mode in (WorkerType.MON_MITM.value, WorkerType.RAID_MITM.value, WorkerType.STOPS.value) \
+                    and area.init:
                 init_area: bool = area.init
             spawns_known: bool = area.coords_spawns_known if area.mode == "mon_mitm" else True
             routecalc: Optional[SettingsRoutecalc] = await SettingsRoutecalcHelper \
@@ -620,12 +621,12 @@ class MappingManager(AbstractMappingManager):
                                                    include_event_id=include_event_id)
 
                 route_manager.add_coords_list(coords)
-                max_radius = mode_mapping[area.mode]["range"]
-                max_count_in_radius = mode_mapping[area.mode]["max_count"]
                 task: Optional[Task] = None
                 if not getattr(area, "init", False):
                     # TODO: proper usage in asnycio loop
-                    task = loop.create_task(route_manager.initial_calculation(max_radius, max_count_in_radius, 0,
+                    task = loop.create_task(route_manager.initial_calculation(route_manager.get_max_radius(),
+                                            route_manager.get_max_coords_within_radius(),
+                                                                              0,
                                                                               False))
                 else:
                     logger.info("Init mode enabled. Going row-based for {}", area.name)
@@ -640,7 +641,7 @@ class MappingManager(AbstractMappingManager):
                     #         routecalc.routefile = str(calc_coords)
                     #         session.add(routecalc)
                     #         await nested.commit()
-                    task = loop.create_task(route_manager.recalc_route(1, 99999999, 0, False))
+                    task = loop.create_task(route_manager.recalc_route(1, 99999999, 0, True, True))
                 areas_procs[area_id] = task
 
             routemanagers[area.area_id] = route_manager
@@ -851,6 +852,7 @@ class MappingManager(AbstractMappingManager):
                     self._geofence_helpers = await self.__get_latest_geofence_helpers(session)
 
         logger.info("Mappings have been updated")
+        # Lastly, kill all strategies and update them accordingly?
 
     async def get_all_devicenames(self) -> List[str]:
         async with self.__db_wrapper as session, session:

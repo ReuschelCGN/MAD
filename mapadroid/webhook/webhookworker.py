@@ -138,6 +138,7 @@ class WebhookWorker:
                     ret.append(entire_payload)
                 except Exception as e:
                     logger.error("Exception occured while generating quest webhook: {}", e)
+                    logger.exception(e)
 
         return ret
 
@@ -150,7 +151,7 @@ class WebhookWorker:
                 "quest_type": transformed_quest["quest_type"],
                 "quest_type_raw": transformed_quest["quest_type_raw"],
                 "item_type": transformed_quest["item_type"],
-                "name": transformed_quest["name"].replace('"', '\\"').replace("\n", "\\n"),
+                "name": transformed_quest["name"].replace('"', '\\"').replace("\n", "\\n") if transformed_quest.get("name") else None,
                 "url": transformed_quest["url"],
                 "timestamp": transformed_quest["timestamp"],
                 "quest_reward_type": transformed_quest["quest_reward_type"],
