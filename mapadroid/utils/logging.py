@@ -98,18 +98,29 @@ def init_logging(args):
         "extra": {"name": "Unknown", "identifier": ""},
     }
 
-    file_logs = [{
-        "sink": os.path.join(args.log_path, "app" + ".log"),
-        "format": fs_log_format,
-        "level": log_file_level,
-        "backtrace": True,
-        "diagnose": log_file_trace,
-        "enqueue": True,
-        "encoding": "UTF-8",
-        "filter": lambda record: True if record["extra"]["name"] in (LoggerEnums.system.value,
-                                                                     LoggerEnums.unknown.value,
-                                                                     LoggerEnums.asyncio.value,
-                                                                     LoggerEnums.endpoint.value) else False
+    file_logs = [
+        {
+            "sink": os.path.join(args.log_path, args.log_filename),
+            "format": fs_log_format,
+            "colorize": colorize,
+            "level": log_file_level,
+            "backtrace": True,
+            "diagnose": True,
+            "enqueue": True,
+            "encoding": "UTF-8"
+    },
+        {
+            "sink": os.path.join(args.log_path, "app" + ".log"),
+            "format": fs_log_format,
+            "level": log_file_level,
+            "backtrace": True,
+            "diagnose": log_file_trace,
+            "enqueue": True,
+            "encoding": "UTF-8",
+            "filter": lambda record: True if record["extra"]["name"] in (LoggerEnums.system.value,
+                                                                         LoggerEnums.unknown.value,
+                                                                         LoggerEnums.asyncio.value,
+                                                                         LoggerEnums.endpoint.value) else False
     },
         {
             "sink": os.path.join(args.log_path, "app" + "_database.log"),
