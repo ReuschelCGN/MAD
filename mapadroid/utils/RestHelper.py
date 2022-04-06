@@ -68,7 +68,7 @@ class RestHelper:
                     if raw_text:
                         try:
                             result.result_body = json.loads(raw_text)
-                            logger.success("Successfully got data from our request to {}: {}", url, result)
+                            logger.debug("Successfully got data from our request to {}: {}", url, result)
                         except Exception as e:
                             logger.debug(
                                 "Failed converting response of request to '{}' with raw result '{}' to json: {}",
