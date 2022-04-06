@@ -2,24 +2,25 @@ import asyncio
 import math
 import time
 from abc import ABC, abstractmethod
-from typing import Optional, Tuple, Union
+from typing import Optional, Tuple, Union, Dict
 
 from loguru import logger
 
 from mapadroid.data_handler.mitm_data.AbstractMitmMapper import AbstractMitmMapper
-from mapadroid.data_handler.stats.AbstractStatsHandler import AbstractStatsHandler
 from mapadroid.data_handler.mitm_data.holder.latest_mitm_data.LatestMitmDataEntry import \
     LatestMitmDataEntry
+from mapadroid.data_handler.stats.AbstractStatsHandler import AbstractStatsHandler
 from mapadroid.db.DbWrapper import DbWrapper
 from mapadroid.db.helper.TrsStatusHelper import TrsStatusHelper
-from mapadroid.db.model import SettingsArea, SettingsWalkerarea, TrsStatus, SettingsDevice, SettingsDevicepool
+from mapadroid.db.model import SettingsArea, SettingsWalkerarea, TrsStatus
 from mapadroid.mapping_manager.MappingManager import MappingManager
 from mapadroid.mapping_manager.MappingManagerDevicemappingKey import \
     MappingManagerDevicemappingKey
 from mapadroid.ocr.pogoWindows import PogoWindows
 from mapadroid.ocr.screenPath import WordToScreenMatching
-from mapadroid.utils.collections import Location
 from mapadroid.utils.DatetimeWrapper import DatetimeWrapper
+from mapadroid.utils.ProtoIdentifier import ProtoIdentifier
+from mapadroid.utils.collections import Location
 from mapadroid.utils.geo import get_distance_of_two_points_in_meters
 from mapadroid.utils.madConstants import (
     FALLBACK_MITM_WAIT_TIMEOUT, MINIMUM_DISTANCE_ALLOWANCE_FOR_GMO,
@@ -29,13 +30,12 @@ from mapadroid.utils.madGlobals import (FortSearchResultTypes,
                                         PositionType, TransportType,
                                         WebsocketWorkerRemovedException,
                                         application_args)
-from mapadroid.utils.ProtoIdentifier import ProtoIdentifier
 from mapadroid.websocket.AbstractCommunicator import AbstractCommunicator
 from mapadroid.worker.ReceivedTypeEnum import ReceivedType
-from mapadroid.worker.strategy.AbstractWorkerStrategy import \
-    AbstractWorkerStrategy
 from mapadroid.worker.WorkerState import WorkerState
 from mapadroid.worker.WorkerType import WorkerType
+from mapadroid.worker.strategy.AbstractWorkerStrategy import \
+    AbstractWorkerStrategy
 
 
 class AbstractMitmBaseStrategy(AbstractWorkerStrategy, ABC):
@@ -58,7 +58,7 @@ class AbstractMitmBaseStrategy(AbstractWorkerStrategy, ABC):
         self._mitm_mapper: AbstractMitmMapper = mitm_mapper
         # TODO: Consider placement
         self._latest_encounter_update = 0
-        self._encounter_ids = {}
+        self._encounter_ids: Dict[str, int] = {}
 
     @abstractmethod
     async def _check_for_data_content(self, latest: Optional[LatestMitmDataEntry],
@@ -126,8 +126,7 @@ class AbstractMitmBaseStrategy(AbstractWorkerStrategy, ABC):
             await self._update_screen_size()
         except WebsocketWorkerRemovedException:
             logger.error("Timeout during init of worker")
-            # no cleanup required here? TODO: signal websocket server somehow
-            self._worker_state.stop_worker_event.set()
+            raise InternalStopWorkerException("Timeout during init of worker")
 
     async def _wait_for_data(self, timestamp: float = None,
                              proto_to_wait_for: ProtoIdentifier = ProtoIdentifier.GMO, timeout=None) \
@@ -140,6 +139,9 @@ class AbstractMitmBaseStrategy(AbstractWorkerStrategy, ABC):
         if timeout is None:
             timeout = await self.get_devicesettings_value(MappingManagerDevicemappingKey.MITM_WAIT_TIMEOUT,
                                                           FALLBACK_MITM_WAIT_TIMEOUT)
+        elif timeout < 0:
+            # never timeout
+            timeout = 0
         # let's fetch the latest data to add the offset to timeout (in case device and server times are off...)
         logger.info('Waiting for data after {}',
                     DatetimeWrapper.fromtimestamp(timestamp))
@@ -147,34 +149,21 @@ class AbstractMitmBaseStrategy(AbstractWorkerStrategy, ABC):
                                                                                    self._worker_state.origin)
         type_of_data_returned = ReceivedType.UNDEFINED
         data = None
-        # Any data after timestamp + timeout should be valid!
         last_time_received = TIMESTAMP_NEVER
+
+        data, latest, type_of_data_returned = await self._request_data(data, key, proto_to_wait_for, timestamp,
+                                                                       type_of_data_returned)
+        if latest:
+            last_time_received = latest.timestamp_of_data_retrieval
+        # Any data after timestamp + timeout should be valid!
         logger.debug("Waiting for data ({}) after {} with timeout of {}s.",
                      proto_to_wait_for, DatetimeWrapper.fromtimestamp(timestamp), timeout)
-        while not self._worker_state.stop_worker_event.is_set() and int(timestamp + timeout) >= int(time.time()) \
-                and last_time_received < timestamp:
+        while not self._worker_state.stop_worker_event.is_set() \
+                and (int(timestamp + timeout) >= int(time.time()) or timeout == 0):
             # Not checking the timestamp against the proto awaited in here since custom handling may be adequate.
             # E.g. Questscan may yield errors like clicking mons instead of stops - which we need to detect as well
-            latest_location: Optional[Location] = await self._mitm_mapper.get_last_known_location(
-                self._worker_state.origin)
-            check_data = True
-            if (latest_location is None or latest_location.lat == latest_location.lng == 1000
-                    or not (latest_location.lat != 0.0 and latest_location.lng != 0.0 and
-                            -90.0 <= latest_location.lat <= 90.0 and
-                            -180.0 <= latest_location.lng <= 180.0)):
-                logger.debug("Data may be valid but does not contain a proper location yet: {}",
-                             str(latest_location))
-                check_data = False
-            elif proto_to_wait_for == ProtoIdentifier.GMO:
-                check_data = await self._is_location_within_allowed_range(latest_location)
-
-            latest: Optional[LatestMitmDataEntry] = None
-            if check_data:
-                latest = await self._mitm_mapper.request_latest(
-                    self._worker_state.origin,
-                    key, timestamp)
-                type_of_data_returned, data = await self._check_for_data_content(
-                    latest, proto_to_wait_for, timestamp)
+            data, latest, type_of_data_returned = await self._request_data(data, key, proto_to_wait_for, timestamp,
+                                                                           type_of_data_returned)
 
             await self.raise_stop_worker_if_applicable()
             if type_of_data_returned == ReceivedType.UNDEFINED:
@@ -187,7 +176,7 @@ class AbstractMitmBaseStrategy(AbstractWorkerStrategy, ABC):
                 break
             await asyncio.sleep(application_args.wait_for_data_sleep_duration)
 
-        if proto_to_wait_for == ProtoIdentifier.GMO:
+        if proto_to_wait_for in [ProtoIdentifier.GMO, ProtoIdentifier.ENCOUNTER]:
             if type_of_data_returned != ReceivedType.UNDEFINED:
                 await self._reset_restart_count_and_collect_stats(timestamp,
                                                                   last_time_received,
@@ -207,6 +196,29 @@ class AbstractMitmBaseStrategy(AbstractWorkerStrategy, ABC):
         # await self.worker_stats()
         return type_of_data_returned, data
 
+    async def _request_data(self, data, key, proto_to_wait_for, timestamp, type_of_data_returned):
+        latest_location: Optional[Location] = await self._mitm_mapper.get_last_known_location(
+            self._worker_state.origin)
+        check_data = True
+        if (latest_location is None or latest_location.lat == latest_location.lng == 1000
+                or not (latest_location.lat != 0.0 and latest_location.lng != 0.0 and
+                        -90.0 <= latest_location.lat <= 90.0 and
+                        -180.0 <= latest_location.lng <= 180.0)):
+            logger.debug("Data may be valid but does not contain a proper location yet: {}",
+                         str(latest_location))
+            check_data = False
+        elif proto_to_wait_for == ProtoIdentifier.GMO:
+            # always check the distance?
+            check_data = await self._is_location_within_allowed_range(latest_location)
+        latest: Optional[LatestMitmDataEntry] = None
+        if check_data:
+            latest = await self._mitm_mapper.request_latest(
+                self._worker_state.origin,
+                key, timestamp)
+            type_of_data_returned, data = await self._check_for_data_content(
+                latest, proto_to_wait_for, timestamp)
+        return data, latest, type_of_data_returned
+
     async def raise_stop_worker_if_applicable(self):
         """
         Checks if the worker is supposed to be stopped or the routemanagers/mappings have changed
@@ -215,12 +227,12 @@ class AbstractMitmBaseStrategy(AbstractWorkerStrategy, ABC):
         if not await self._mapping_manager.routemanager_present(self._area_id) \
                 or self._worker_state.stop_worker_event.is_set():
             logger.error("killed while sleeping")
-            raise InternalStopWorkerException
+            raise InternalStopWorkerException("Worker is supposed to be stopped or route is not present anymore")
         position_type = await self._mapping_manager.routemanager_get_position_type(self._area_id,
                                                                                    self._worker_state.origin)
         if position_type is None:
             logger.info("Mappings/Routemanagers have changed, stopping worker to be created again")
-            raise InternalStopWorkerException
+            raise InternalStopWorkerException("Mappings have changed")
 
     async def _is_location_within_allowed_range(self, latest_location):
         logger.debug2("Checking (data) location reported by {} at {} against real data location {}",
@@ -258,23 +270,23 @@ class AbstractMitmBaseStrategy(AbstractWorkerStrategy, ABC):
                                               speed)
         # We need to roughly estimate when data could have been available, just picking half way for now, distance
         # check should do the rest...
-        delay_used = math.floor(time.time())
-        if delay_used - SECONDS_BEFORE_ARRIVAL_OF_WALK_BUFFER < time_before_walk:
+        time_returned = math.floor(time.time())
+        if time_returned - SECONDS_BEFORE_ARRIVAL_OF_WALK_BUFFER < time_before_walk:
             # duration of walk was rather short, let's go with that...
-            delay_used = time_before_walk
+            time_returned = time_before_walk
         elif (math.floor((math.floor(time.time()) + time_before_walk) / 2) <
-              delay_used - SECONDS_BEFORE_ARRIVAL_OF_WALK_BUFFER):
+              time_returned - SECONDS_BEFORE_ARRIVAL_OF_WALK_BUFFER):
             # half way through the walk was earlier than 10s in the past, just gonna go with magic numbers once more
-            delay_used -= SECONDS_BEFORE_ARRIVAL_OF_WALK_BUFFER
+            time_returned -= SECONDS_BEFORE_ARRIVAL_OF_WALK_BUFFER
         else:
             # half way through was within the last 10s, we can use that to check for data afterwards
-            delay_used = math.floor((math.floor(time.time()) + time_before_walk) / 2)
-        return delay_used
+            time_returned = math.floor((math.floor(time.time()) + time_before_walk) / 2)
+        return time_returned
 
     async def _get_route_manager_settings_and_distance_to_current_location(self) -> Tuple[float, SettingsArea]:
         if not await self._mapping_manager.routemanager_present(self._area_id) \
                 or self._worker_state.stop_worker_event.is_set():
-            raise InternalStopWorkerException
+            raise InternalStopWorkerException("Route not present anymore or worker is to be stopped")
         routemanager_settings = await self._mapping_manager.routemanager_get_settings(self._area_id)
         distance = get_distance_of_two_points_in_meters(float(self._worker_state.last_location.lat),
                                                         float(
@@ -292,28 +304,24 @@ class AbstractMitmBaseStrategy(AbstractWorkerStrategy, ABC):
         worker_type: WorkerType = WorkerType(routemanager_settings.mode)
 
         await self._stats_handler.stats_collect_location_data(self._worker_state.origin,
-                                                            self._worker_state.current_location, False,
-                                                            fix_ts,
-                                                            position_type,
-                                                            TIMESTAMP_NEVER,
-                                                            worker_type, self._worker_state.last_transport_type,
-                                                            now_ts)
+                                                              self._worker_state.current_location, False,
+                                                              fix_ts,
+                                                              position_type,
+                                                              TIMESTAMP_NEVER,
+                                                              worker_type, self._worker_state.last_transport_type,
+                                                              now_ts)
 
         self._worker_state.restart_count += 1
         restart_thresh = await self.get_devicesettings_value(MappingManagerDevicemappingKey.RESTART_THRESH, 5)
         reboot_thresh = await self.get_devicesettings_value(MappingManagerDevicemappingKey.REBOOT_THRESH, 3)
-        if await self._mapping_manager.routemanager_get_route_stats(self._area_id,
-                                                                    self._worker_state.origin) is not None:
-            if await self._mapping_manager.routemanager_get_init(self._area_id):
-                restart_thresh = restart_thresh * 2
-                reboot_thresh = reboot_thresh * 2
+
         if self._worker_state.restart_count > restart_thresh:
             self._worker_state.reboot_count += 1
             if self._worker_state.reboot_count > reboot_thresh \
                     and await self.get_devicesettings_value(MappingManagerDevicemappingKey.REBOOT, True):
                 logger.error("Too many timeouts - Rebooting device")
                 await self._reboot()
-                raise InternalStopWorkerException
+                raise InternalStopWorkerException("Too many timeouts, reboot issued")
 
             # self._mitm_mapper.
             self._worker_state.restart_count = 0
@@ -335,9 +343,10 @@ class AbstractMitmBaseStrategy(AbstractWorkerStrategy, ABC):
         logger.debug('Reboot Counter: {}', self._worker_state.reboot_count)
         logger.debug('Reboot Option: {}',
                      await self.get_devicesettings_value(MappingManagerDevicemappingKey.REBOOT, True))
-        logger.debug('Current Pos: {} {}', self._worker_state.current_location.lat,
-                     self._worker_state.current_location.lng)
-        logger.debug('Last Pos: {} {}', self._worker_state.last_location.lat, self._worker_state.last_location.lng)
+        if self._worker_state.current_location:
+            logger.debug('Current Pos: {}', self._worker_state.current_location)
+        if self._worker_state.last_location:
+            logger.debug('Last Pos: {}', self._worker_state.last_location)
         routemanager_status = await self._mapping_manager.routemanager_get_route_stats(self._area_id,
                                                                                        self._worker_state.origin)
         if routemanager_status is None:
@@ -345,8 +354,6 @@ class AbstractMitmBaseStrategy(AbstractWorkerStrategy, ABC):
             routemanager_status = [None, None]
         else:
             logger.debug('Route Pos: {} - Route Length: {}', routemanager_status[0], routemanager_status[1])
-        routemanager_init: bool = await self._mapping_manager.routemanager_get_init(self._area_id)
-        logger.debug('Init Mode: {}', routemanager_init)
         logger.debug('Last Date/Time of Data: {}', self._worker_state.last_received_data_time)
         logger.debug('===============================')
         async with self._db_wrapper as session, session:
@@ -355,13 +362,14 @@ class AbstractMitmBaseStrategy(AbstractWorkerStrategy, ABC):
                 status = TrsStatus()
                 status.device_id = self._worker_state.device_id
                 status.instance_id = self._db_wrapper.get_instance_id()
-            status.currentPos = (self._worker_state.current_location.lat, self._worker_state.current_location.lng)
-            status.lastPos = (self._worker_state.last_location.lat, self._worker_state.last_location.lng)
+            if self._worker_state.current_location:
+                status.currentPos = (self._worker_state.current_location.lat, self._worker_state.current_location.lng)
+            if self._worker_state.last_location:
+                status.lastPos = (self._worker_state.last_location.lat, self._worker_state.last_location.lng)
             status.routePos = routemanager_status[0]
             status.routeMax = routemanager_status[1]
             status.area_id = self._area_id
             status.rebootCounter = self._worker_state.reboot_count
-            status.init = routemanager_init
             status.rebootingOption = await self.get_devicesettings_value(MappingManagerDevicemappingKey.REBOOT, True)
             status.restartCounter = self._worker_state.restart_count
             status.currentSleepTime = self._worker_state.current_sleep_duration
@@ -387,17 +395,17 @@ class AbstractMitmBaseStrategy(AbstractWorkerStrategy, ABC):
         worker_type: WorkerType = WorkerType(routemanager_settings.mode)
 
         await self._stats_handler.stats_collect_location_data(self._worker_state.origin,
-                                                            self._worker_state.current_location, True,
-                                                            fix_ts,
-                                                            position_type, timestamp_received_raw,
-                                                            worker_type, self._worker_state.last_transport_type,
-                                                            now_ts)
+                                                              self._worker_state.current_location, True,
+                                                              fix_ts,
+                                                              position_type, timestamp_received_raw,
+                                                              worker_type, self._worker_state.last_transport_type,
+                                                              now_ts)
 
     async def start_pogo(self) -> bool:
         started_pogo: bool = await super().start_pogo()
         if not await self._wait_for_injection() or self._worker_state.stop_worker_event.is_set():
             await self._mitm_mapper.set_injection_status(self._worker_state.origin, False)
-            raise InternalStopWorkerException
+            raise InternalStopWorkerException("Failed waiting for injection")
         else:
             return started_pogo
 
@@ -405,7 +413,6 @@ class AbstractMitmBaseStrategy(AbstractWorkerStrategy, ABC):
         not_injected_count = 0
         injection_thresh_reboot = int(
             await self.get_devicesettings_value(MappingManagerDevicemappingKey.INJECTION_THRESH_REBOOT, 20))
-        # TODO: Else check MitmApp was started...
         window_check_frequency = 3
         while not await self._mitm_mapper.get_injection_status(self._worker_state.origin):
             await self._check_for_mad_job()
@@ -458,4 +465,7 @@ class AbstractMitmBaseStrategy(AbstractWorkerStrategy, ABC):
 
     async def _additional_health_check(self) -> None:
         # Ensure PogoDroid was started...
-        await self._communicator.passthrough("su -c 'am startservice -n com.mad.pogodroid/.services.HookReceiverService'")
+        if not await self.get_devicesettings_value(MappingManagerDevicemappingKey.EXTENDED_PERMISSION_TOGGLING, False):
+            return
+        await self._communicator.passthrough(
+            "su -c 'am startservice -n com.mad.pogodroid/.services.HookReceiverService'")

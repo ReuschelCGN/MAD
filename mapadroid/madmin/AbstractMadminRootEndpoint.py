@@ -1,5 +1,4 @@
 import asyncio
-import concurrent
 import json
 from abc import ABC
 from typing import Any, Optional, List, Dict
@@ -65,7 +64,7 @@ class AbstractMadminRootEndpoint(web.View, ABC):
             logger.exception(e)
             await session.rollback()
             # TODO: Get previous URL...
-            raise web.HTTPFound("/")
+            raise web.HTTPInternalServerError()
         return response
 
     def _save(self, instance: Base):

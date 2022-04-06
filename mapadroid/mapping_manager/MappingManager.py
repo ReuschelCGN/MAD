@@ -7,8 +7,6 @@ from typing import Any, Dict, List, Optional, Set, Tuple, Union
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from mapadroid.db.DbWrapper import DbWrapper
-from mapadroid.db.helper.GymHelper import GymHelper
-from mapadroid.db.helper.PokestopHelper import PokestopHelper
 from mapadroid.db.helper.SettingsAuthHelper import SettingsAuthHelper
 from mapadroid.db.helper.SettingsDeviceHelper import SettingsDeviceHelper
 from mapadroid.db.helper.SettingsDevicepoolHelper import \
@@ -22,12 +20,11 @@ from mapadroid.db.helper.SettingsWalkerToWalkerareaHelper import \
     SettingsWalkerToWalkerareaHelper
 from mapadroid.db.helper.SettingsWalkerareaHelper import \
     SettingsWalkerareaHelper
-from mapadroid.db.helper.TrsSpawnHelper import TrsSpawnHelper
 from mapadroid.db.model import (SettingsArea, SettingsAuth, SettingsDevice,
                                 SettingsDevicepool, SettingsGeofence,
                                 SettingsPogoauth, SettingsRoutecalc,
                                 SettingsWalker, SettingsWalkerarea,
-                                SettingsWalkerToWalkerarea, TrsSpawn)
+                                SettingsWalkerToWalkerarea)
 from mapadroid.geofence.geofenceHelper import GeofenceHelper
 from mapadroid.mapping_manager.AbstractMappingManager import AbstractMappingManager
 from mapadroid.mapping_manager.MappingManagerDevicemappingKey import MappingManagerDevicemappingKey
@@ -38,8 +35,7 @@ from mapadroid.route.prioq.strategy.AbstractRoutePriorityQueueStrategy import Ro
 from mapadroid.utils.collections import Location
 from mapadroid.utils.language import get_mon_ids
 from mapadroid.utils.logging import LoggerEnums, get_logger
-from mapadroid.utils.madGlobals import ScreenshotType, PositionType
-from mapadroid.utils.s2Helper import S2Helper
+from mapadroid.utils.madGlobals import ScreenshotType, PositionType, RoutemanagerShuttingDown
 from mapadroid.worker.WorkerType import WorkerType
 
 logger = get_logger(LoggerEnums.utils)
@@ -59,9 +55,9 @@ mode_mapping = {
     },
     "pokestops": {
         "s2_cell_level": 13,
-        "range": 0.001,
+        "range": 70, # stop interaction radius is 80m
         "range_init": 980,
-        "max_count": 100000
+        "max_count": 1
     },
     "iv_mitm": {
         "range": 67,
@@ -123,7 +119,6 @@ class MappingManager(AbstractMappingManager):
     async def setup(self):
         self.__mappings_mutex: asyncio.Lock = asyncio.Lock()
 
-        loop = asyncio.get_running_loop()
         await self.update(full_lock=True)
 
     def shutdown(self):
@@ -263,8 +258,8 @@ class MappingManager(AbstractMappingManager):
         elif key == MappingManagerDevicemappingKey.WALK_AFTER_TELEPORT_DISTANCE:
             return devicemapping_entry.pool_settings.walk_after_teleport_distance if devicemapping_entry.pool_settings and devicemapping_entry.pool_settings.walk_after_teleport_distance else devicemapping_entry.device_settings.walk_after_teleport_distance
         elif key == MappingManagerDevicemappingKey.COOLDOWN_SLEEP:
-            cool_down_sleep: int = devicemapping_entry.pool_settings.cool_down_sleep if devicemapping_entry.pool_settings and devicemapping_entry.pool_settings.cool_down_sleep else devicemapping_entry.device_settings.cool_down_sleep
-            return True if cool_down_sleep != 0 else False
+            cool_down_sleep: bool = devicemapping_entry.pool_settings.cool_down_sleep if devicemapping_entry.pool_settings and devicemapping_entry.pool_settings.cool_down_sleep else devicemapping_entry.device_settings.cool_down_sleep
+            return cool_down_sleep
         elif key == MappingManagerDevicemappingKey.POST_POGO_START_DELAY:
             return devicemapping_entry.pool_settings.post_pogo_start_delay if devicemapping_entry.pool_settings and devicemapping_entry.pool_settings.post_pogo_start_delay else devicemapping_entry.device_settings.post_pogo_start_delay
         elif key == MappingManagerDevicemappingKey.RESTART_POGO:
@@ -276,8 +271,8 @@ class MappingManager(AbstractMappingManager):
         elif key == MappingManagerDevicemappingKey.VPS_DELAY:
             return devicemapping_entry.pool_settings.vps_delay if devicemapping_entry.pool_settings and devicemapping_entry.pool_settings.vps_delay else devicemapping_entry.device_settings.vps_delay
         elif key == MappingManagerDevicemappingKey.REBOOT:
-            reboot_int: int = devicemapping_entry.pool_settings.reboot if devicemapping_entry.pool_settings and devicemapping_entry.pool_settings.reboot else devicemapping_entry.device_settings.reboot
-            return True if reboot_int != 0 else False
+            reboot: bool = devicemapping_entry.pool_settings.reboot if devicemapping_entry.pool_settings and devicemapping_entry.pool_settings.reboot else devicemapping_entry.device_settings.reboot
+            return reboot
         elif key == MappingManagerDevicemappingKey.REBOOT_THRESH:
             return devicemapping_entry.pool_settings.reboot_thresh if devicemapping_entry.pool_settings and devicemapping_entry.pool_settings.reboot_thresh else devicemapping_entry.device_settings.reboot_thresh
         elif key == MappingManagerDevicemappingKey.RESTART_THRESH:
@@ -295,14 +290,15 @@ class MappingManager(AbstractMappingManager):
         elif key == MappingManagerDevicemappingKey.INJECTION_THRESH_REBOOT:
             return devicemapping_entry.pool_settings.injection_thresh_reboot if devicemapping_entry.pool_settings and devicemapping_entry.pool_settings.injection_thresh_reboot else devicemapping_entry.device_settings.injection_thresh_reboot
         elif key == MappingManagerDevicemappingKey.SCREENDETECTION:
-            screen_detection: int = devicemapping_entry.pool_settings.screendetection if devicemapping_entry.pool_settings and devicemapping_entry.pool_settings.screendetection else devicemapping_entry.device_settings.screendetection
-            return True if screen_detection != 0 else False
+            screen_detection: Optional[
+                bool] = devicemapping_entry.pool_settings.screendetection if devicemapping_entry.pool_settings and devicemapping_entry.pool_settings.screendetection else devicemapping_entry.device_settings.screendetection
+            return screen_detection if screen_detection is not None else False
         elif key == MappingManagerDevicemappingKey.ENHANCED_MODE_QUEST_SAFE_ITEMS:
             return devicemapping_entry.pool_settings.enhanced_mode_quest_safe_items if devicemapping_entry.pool_settings and devicemapping_entry.pool_settings.enhanced_mode_quest_safe_items else devicemapping_entry.device_settings.enhanced_mode_quest_safe_items
         elif key == MappingManagerDevicemappingKey.CLEAR_GAME_DATA:
-            return True if devicemapping_entry.device_settings.clear_game_data != 0 else False
+            return devicemapping_entry.device_settings.clear_game_data if devicemapping_entry.device_settings.clear_game_data is not None else False
         elif key == MappingManagerDevicemappingKey.SOFTBAR_ENABLED:
-            return True if devicemapping_entry.device_settings.softbar_enabled != 0 else False
+            return devicemapping_entry.device_settings.softbar_enabled if devicemapping_entry.device_settings.softbar_enabled is not None else False
         # Extra keys to e.g. retrieve PTC accounts
         elif key == MappingManagerDevicemappingKey.PTC_LOGIN:
             return devicemapping_entry.ptc_logins
@@ -312,6 +308,8 @@ class MappingManager(AbstractMappingManager):
             return devicemapping_entry.device_settings.account_rotation
         elif key == MappingManagerDevicemappingKey.ROTATE_ON_LVL_30:
             return devicemapping_entry.device_settings.rotate_on_lvl_30
+        elif key == MappingManagerDevicemappingKey.EXTENDED_PERMISSION_TOGGLING:
+            return devicemapping_entry.device_settings.extended_permission_toggling
         else:
             # TODO: Get all the DB values...
             pass
@@ -404,10 +402,10 @@ class MappingManager(AbstractMappingManager):
         routemanager = self.__fetch_routemanager(routemanager_id)
         return routemanager.get_rounds(worker_name) if routemanager is not None else None
 
-    async def routemanager_redo_stop(self, routemanager_id: int, worker_name: str, lat: float,
-                                     lon: float) -> bool:
+    async def routemanager_redo_stop_immediately(self, routemanager_id: int, worker_name: str, lat: float,
+                                                 lon: float) -> bool:
         routemanager = self.__fetch_routemanager(routemanager_id)
-        return routemanager.redo_stop(worker_name, lat, lon) if routemanager is not None else False
+        return routemanager.redo_stop_immediately(worker_name, lat, lon) if routemanager is not None else False
 
     async def routemanager_get_registered_workers(self, routemanager_id: int) -> Optional[Set[str]]:
         routemanager = self.__fetch_routemanager(routemanager_id)
@@ -420,10 +418,6 @@ class MappingManager(AbstractMappingManager):
     async def routemanager_get_geofence_helper(self, routemanager_id: int) -> Optional[GeofenceHelper]:
         routemanager = self.__fetch_routemanager(routemanager_id)
         return routemanager.get_geofence_helper() if routemanager is not None else None
-
-    async def routemanager_get_init(self, routemanager_id: int) -> bool:
-        routemanager = self.__fetch_routemanager(routemanager_id)
-        return routemanager.get_init() if routemanager is not None else False
 
     async def routemanager_is_levelmode(self, routemanager_id: int) -> bool:
         routemanager = self.__fetch_routemanager(routemanager_id)
@@ -486,27 +480,23 @@ class MappingManager(AbstractMappingManager):
         routemanager = self.__fetch_routemanager(routemanager_id)
         return routemanager.get_max_radius() if routemanager is not None else None
 
-    async def routemanager_recalcualte(self, routemanager_id: int):
+    async def routemanager_recalculate(self, routemanager_id: int):
         successful = False
         try:
             routemanager = self.__fetch_routemanager(routemanager_id)
             if not routemanager:
                 return False
-            active = False
             if routemanager._check_routepools_thread:
-                active = True
+                # TODO: ??
                 successful = True
             else:
                 await routemanager.start_routemanager()
-                active = False
                 successful = True
-            args = (routemanager._max_radius, routemanager._max_coords_within_radius)
+            args = (False, True)
             kwargs = {
-                'num_procs': 0,
-                'active': active
             }
             loop = asyncio.get_running_loop()
-            loop.create_task(coro=routemanager.recalc_route_adhoc(*args, **kwargs))
+            loop.create_task(coro=routemanager.calculate_route(*args, **kwargs))
         except Exception:
             logger.opt(exception=True).error('Unable to start recalculation')
         return successful
@@ -580,9 +570,7 @@ class MappingManager(AbstractMappingManager):
             if area.mode in ("iv_mitm", "mon_mitm", "raids_mitm") and area.monlist_id:
                 # replace list name
                 area_settings['mon_ids_iv_raw'] = self.get_monlist(area_id)
-            init_area: bool = False
-            if area.mode in ("mon_mitm", "raids_mitm", "pokestop") and area.init:
-                init_area: bool = area.init
+
             spawns_known: bool = area.coords_spawns_known if area.mode == "mon_mitm" else True
             routecalc: Optional[SettingsRoutecalc] = await SettingsRoutecalcHelper \
                 .get(session, area.routecalc)
@@ -607,45 +595,18 @@ class MappingManager(AbstractMappingManager):
                                                                  )
             logger.info("Initializing area {}", area.name)
             if area.mode not in ("iv_mitm", "idle") and calc_type != "routefree":
-                include_event_id = area.include_event_id if area.mode == "mon_mitm" else None
-                coords = await self.__fetch_coords(session, area.mode, geofence_helper,
-                                                   coords_spawns_known=spawns_known,
-                                                   init=init_area,
-                                                   range_init=mode_mapping.get(area.mode, {}).get("range_init",
-                                                                                                  630),
-                                                   including_stops=including_stops,
-                                                   include_event_id=include_event_id)
-
-                route_manager.add_coords_list(coords)
-                max_radius = mode_mapping[area.mode]["range"]
-                max_count_in_radius = mode_mapping[area.mode]["max_count"]
-                task: Optional[Task] = None
-                if not getattr(area, "init", False):
-                    # TODO: proper usage in asnycio loop
-                    task = loop.create_task(route_manager.initial_calculation(max_radius, max_count_in_radius, 0,
-                                                                              False))
-                else:
-                    logger.info("Init mode enabled. Going row-based for {}", area.name)
-                    # we are in init, let's write the init route to file to make it visible in madmin
-                    # async with session.begin_nested() as nested:
-                    #     calc_coords = []
-                    #     if getattr(area, "routecalc", None) is not None:
-                    #         for loc in coords:
-                    #             calc_coord = '%s,%s' % (str(loc.lat), str(loc.lng))
-                    #             calc_coords.append(calc_coord)
-                    #         calc_coords = str(calc_coords).replace("\'", "\"")
-                    #         routecalc.routefile = str(calc_coords)
-                    #         session.add(routecalc)
-                    #         await nested.commit()
-                    task = loop.create_task(route_manager.recalc_route(1, 99999999, 0, False))
+                task = loop.create_task(route_manager.calculate_route(False))
                 areas_procs[area_id] = task
 
             routemanagers[area.area_id] = route_manager
         for area in areas_procs.keys():
             # TODO: Async executors...
             to_be_checked: Task = areas_procs[area]
-            await to_be_checked
-
+            try:
+                await to_be_checked
+            except RoutemanagerShuttingDown as e:
+                logger.warning("Ignoring area {} due to failure to calculate route.", area)
+                del routemanagers[area]
         return routemanagers
 
     async def __get_latest_devicemappings(self, session: AsyncSession) -> Dict[str, DeviceMappingsEntry]:
@@ -688,44 +649,6 @@ class MappingManager(AbstractMappingManager):
                     device_entry.walker_areas.append(all_walkerareas.get(walker_to_walkerareas.walkerarea_id))
             devices[device.name] = device_entry
         return devices
-
-    async def __fetch_coords(self, session: AsyncSession, mode: str, geofence_helper: GeofenceHelper,
-                             coords_spawns_known: bool = True,
-                             init: bool = False, range_init: int = 630, including_stops: bool = False,
-                             include_event_id=None) -> List[Location]:
-        coords: List[Location] = []
-        if not init:
-            # grab data from DB depending on mode
-            # TODO: move routemanagers to factory
-            if mode == "raids_mitm":
-                coords = await GymHelper.get_locations_in_fence(session, geofence_helper)
-                if including_stops:
-                    try:
-                        stops = await PokestopHelper.get_locations_in_fence(session, geofence_helper)
-                        if stops:
-                            coords.extend(stops)
-                    except Exception:
-                        pass
-            elif mode == "mon_mitm":
-                spawns: List[TrsSpawn] = []
-                if coords_spawns_known:
-                    logger.debug("Reading known Spawnpoints from DB")
-                    spawns = await TrsSpawnHelper.get_known_of_area(session, geofence_helper, include_event_id)
-                else:
-                    logger.debug("Reading unknown Spawnpoints from DB")
-                    spawns = await TrsSpawnHelper.get_known_without_despawn_of_area(session, geofence_helper,
-                                                                                    include_event_id)
-                for spawn in spawns:
-                    coords.append(Location(float(spawn.latitude), float(spawn.longitude)))
-            elif mode == "pokestops":
-                coords = await PokestopHelper.get_locations_in_fence(session, geofence_helper)
-            else:
-                logger.info("Mode not implemented yet: {}", mode)
-                exit(1)
-        else:
-            # calculate all level N cells (mapping back from mapping above linked to mode)
-            coords = S2Helper._generate_locations(range_init, geofence_helper)
-        return coords
 
     async def __get_latest_auths(self, session: AsyncSession) -> Dict[str, str]:
         """
@@ -818,7 +741,7 @@ class MappingManager(AbstractMappingManager):
 
             for area_id, routemanager in self._routemanagers.items():
                 logger.info("Stopping all routemanagers and join threads")
-                await routemanager.stop_routemanager(joinwithqueue=False)
+                await routemanager.stop_routemanager()
                 await routemanager._stop_internal_tasks()
 
             logger.info("Restoring old devicesettings")
@@ -834,6 +757,7 @@ class MappingManager(AbstractMappingManager):
                 self._routemanagers = routemanagers_tmp
                 self._auths = auths_tmp
                 self._geofence_helpers = geofence_helpers_tmp
+            # Lastly, kill all strategies and update them accordingly
 
         else:
             logger.debug("Acquiring lock to update mappings,full")
@@ -869,3 +793,20 @@ class MappingManager(AbstractMappingManager):
         if not device_routemananger:
             return False
         return await self.routemanager_is_levelmode(device_routemananger)
+
+    async def routemanager_get_quest_layer_to_scan_of_origin(self, origin: str) -> Optional[int]:
+        if not origin:
+            # just avoid undefined behaviour....
+            return None
+        device_routemananger: Optional[int] = await self.get_routemanager_id_where_device_is_registered(origin)
+        if not device_routemananger:
+            return None
+        return await self.routemanager_get_quest_layer_to_scan(device_routemananger)
+
+    async def routemanager_get_quest_layer_to_scan(self, routemanager_id: int) -> Optional[int]:
+        routemanager = self.__fetch_routemanager(routemanager_id)
+        return routemanager.get_quest_layer_to_scan() if routemanager is not None else None
+
+    async def routemanager_redo_stop_at_end(self, routemanager_id: int, worker_name: str, location: Location) -> None:
+        routemanager = self.__fetch_routemanager(routemanager_id)
+        routemanager.redo_stop_at_end(worker_name, location)

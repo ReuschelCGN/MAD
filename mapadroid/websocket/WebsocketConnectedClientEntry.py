@@ -47,15 +47,11 @@ class WebsocketConnectedClientEntry:
 
     async def send_and_wait(self, message: MessageTyping, timeout: float, worker_instance: AbstractWorker,
                             byte_command: Optional[int] = None) -> Optional[MessageTyping]:
-        return await self.send_and_wait_async(message, timeout, worker_instance, byte_command=byte_command)
-
-    async def send_and_wait_async(self, message: MessageTyping, timeout: float, worker_instance: AbstractWorker,
-                                  byte_command: Optional[int] = None) -> Optional[MessageTyping]:
-        if self.worker_instance is None or self.worker_instance != worker_instance and worker_instance != 'madmin':
+        if not self.worker_instance or self.worker_instance != worker_instance and worker_instance != 'madmin':
             # TODO: consider changing this...
-            raise WebsocketWorkerRemovedException
+            raise WebsocketWorkerRemovedException("Invalid worker instance, removed worker")
         elif not self.websocket_client_connection.open:
-            raise WebsocketWorkerConnectionClosedException
+            raise WebsocketWorkerConnectionClosedException("Connection closed, stopping")
 
         # install new ReceivedMessageEntry
         message_id: int = await self.__get_new_message_id()
@@ -88,7 +84,7 @@ class WebsocketConnectedClientEntry:
                 self.fail_counter += 1
                 if self.fail_counter > 5:
                     logger.error("5 consecutive timeouts or origin is no longer connected, cleanup")
-                    raise WebsocketWorkerTimeoutException
+                    raise WebsocketWorkerTimeoutException("Multiple consecutive timeouts detected")
 
             logger.debug("Done sending command")
             return response

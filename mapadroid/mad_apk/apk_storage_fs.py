@@ -3,17 +3,19 @@ import os
 import re
 from copy import copy
 from io import BytesIO
-from typing import Any, ClassVar, Optional
+from typing import Any, ClassVar, Optional, AsyncGenerator, Union
 
 from aiofile import async_open
 from asyncio_rlock import RLock
+from sqlalchemy.ext.asyncio import AsyncSession
 
+from mapadroid.utils.apk_enums import APKArch, APKType
+from mapadroid.utils.custom_types import MADapks, MADPackage, MADPackages
 from mapadroid.utils.json_encoder import MADEncoder
 from mapadroid.utils.logging import LoggerEnums, get_logger
 from .abstract_apk_storage import AbstractAPKStorage
-from mapadroid.utils.apk_enums import APKArch, APKType
-from mapadroid.utils.custom_types import MADapks, MADPackage, MADPackages
 from .utils import generate_filename, lookup_apk_enum, lookup_arch_enum
+from ..utils.global_variables import CHUNK_MAX_SIZE
 
 logger = get_logger(LoggerEnums.storage)
 
@@ -63,6 +65,32 @@ class APKStorageFilesystem(AbstractAPKStorage):
         config_apk_dir (str): Root storage directory for packages
         config_filepath (str): Path to the configuration file
     """
+
+    async def get_async_generator(self, session: AsyncSession, package_info: Union[MADPackage, MADPackages],
+                                  package: APKType,
+                                  architecture: APKArch) -> AsyncGenerator:
+        """ Create a generator for retrieving the stored package from the disk
+
+        Args:
+            architecture:
+            package:
+            package_info:
+            session:
+        Returns:
+            Generator for retrieving the package
+        """
+        if isinstance(package_info, MADPackage):
+            filename = package_info.filename
+        else:
+            package: MADPackage = package_info.get(architecture)
+            filename = package.filename
+        async with async_open(self.get_package_path(filename), 'rb') as fh:
+            while True:
+                data = await fh.read(CHUNK_MAX_SIZE)
+                if not data:
+                    break
+                yield data
+
     # TODO: Somehow get async locking running?...
     config_apks: ClassVar[str] = 'mad_apk'
     apks: MADapks
@@ -298,4 +326,4 @@ class APKStorageFilesystem(AbstractAPKStorage):
                 raise FileNotFoundError(package_path)
             return True
         except KeyError:
-            raise FileNotFoundError
+            raise FileNotFoundError("Could not locate APK")

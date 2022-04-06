@@ -10,14 +10,12 @@ from google.protobuf import symbol_database as _symbol_database
 
 _sym_db = _symbol_database.Default()
 
-
 from mapadroid.grpc.compiled.shared import Location_pb2 as shared_dot_Location__pb2
 from mapadroid.grpc.compiled.shared import Ack_pb2 as shared_dot_Ack__pb2
 from mapadroid.grpc.compiled.shared import PositionType_pb2 as shared_dot_PositionType__pb2
 from mapadroid.grpc.compiled.shared import TransportType_pb2 as shared_dot_TransportType__pb2
 from mapadroid.grpc.compiled.shared import MonSeenTypes_pb2 as shared_dot_MonSeenTypes__pb2
 from mapadroid.grpc.compiled.shared import Worker_pb2 as shared_dot_Worker__pb2
-
 
 DESCRIPTOR = _descriptor.FileDescriptor(
   name='stats_handler/stats_handler.proto',

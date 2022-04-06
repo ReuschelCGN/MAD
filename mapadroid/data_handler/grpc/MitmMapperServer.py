@@ -1,20 +1,20 @@
 import asyncio
-from typing import Dict, Optional
+from typing import Optional, List
 
 import grpc
 from google.protobuf import json_format
 from grpc._cython.cygrpc import CompressionAlgorithm, CompressionLevel
 
+from mapadroid.data_handler.mitm_data.MitmMapper import MitmMapper
 from mapadroid.data_handler.mitm_data.holder.latest_mitm_data.LatestMitmDataEntry import \
     LatestMitmDataEntry
-from mapadroid.data_handler.mitm_data.MitmMapper import MitmMapper
 from mapadroid.grpc.compiled.mitm_mapper import mitm_mapper_pb2
 from mapadroid.grpc.compiled.mitm_mapper.mitm_mapper_pb2 import (
     InjectedRequest, InjectionStatus,
     LastKnownLocationResponse, LastMoved, LatestMitmDataEntryRequest,
     LatestMitmDataEntryResponse, LatestMitmDataEntryUpdateRequest,
     LevelResponse, PokestopVisitsResponse,
-    SetLevelRequest, SetPokestopVisitsRequest)
+    SetLevelRequest, SetPokestopVisitsRequest, SetQuestsHeldRequest, GetQuestsHeldResponse)
 from mapadroid.grpc.compiled.shared.Ack_pb2 import Ack
 from mapadroid.grpc.compiled.shared.Worker_pb2 import Worker
 from mapadroid.grpc.stubs.mitm_mapper.mitm_mapper_pb2_grpc import (
@@ -52,7 +52,8 @@ class MitmMapperServer(MitmMapperServicer, MitmMapper):
         await self.__server.start()
 
     async def __secure_port(self, address):
-        with open(application_args.mitmmapper_tls_private_key_file, 'r') as keyfile, open(application_args.mitmmapper_tls_cert_file, 'r') as certfile:
+        with open(application_args.mitmmapper_tls_private_key_file, 'r') as keyfile, open(
+                application_args.mitmmapper_tls_cert_file, 'r') as certfile:
             private_key = keyfile.read()
             certificate_chain = certfile.read()
         credentials = grpc.ssl_server_credentials(
@@ -178,4 +179,22 @@ class MitmMapperServer(MitmMapperServicer, MitmMapper):
         await self.set_pokestop_visits(worker=request.worker.name,
                                        pokestop_visits=request.pokestop_visits)
         response: Ack = Ack()
+        return response
+
+    async def SetQuestsHeld(self, request: SetQuestsHeldRequest, context: grpc.aio.ServicerContext) -> Ack:
+        quests_held: Optional[List[int]] = None
+        if request.HasField("quests_held"):
+            quests_held = [quest_id for quest_id in request.quests_held.quest_ids]
+        await self.__mitm_data_handler.set_quests_held(worker=request.worker.name,
+                                                       quests_held=quests_held)
+
+    async def GetQuestsHeld(self, request: Worker, context: grpc.aio.ServicerContext) -> GetQuestsHeldResponse:
+        response: GetQuestsHeldResponse = GetQuestsHeldResponse()
+        quests_held: Optional[List[int]] = await self.__mitm_data_handler.get_quests_held(request.name)
+        if quests_held is not None:
+            # TODO: Do we need to set the message response.quests_held?
+            for quest_id in quests_held:
+                response.quests_held.quest_ids.append(quest_id)
+        else:
+            response.ClearField("quests_held")
         return response

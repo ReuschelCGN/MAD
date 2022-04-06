@@ -10,8 +10,6 @@ from mapadroid.db.resource_definitions.Device import Device
 from mapadroid.madmin.endpoints.api.resources.AbstractResourceEndpoint import (
     AbstractResourceEndpoint)
 
-from loguru import logger
-
 
 class DeviceEndpoint(AbstractResourceEndpoint):
     async def _delete_connected_post(self, db_entry):
@@ -78,7 +76,7 @@ class DeviceEndpoint(AbstractResourceEndpoint):
                     self._get_mapping_manager().set_device_state(int(identifier), active)
                     # TODO:..
                     # self._get_mapping_manager().device_set_disabled(device.name)
-                    await self._get_ws_server().force_disconnect(device.name)
+                    await self._get_ws_server().force_cancel_worker(device.name)
                     return await self._json_response(status=200)
                 elif call == 'flush_level':
                     await TrsVisitedHelper.flush_all_of_origin(self._session, device.name)

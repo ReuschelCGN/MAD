@@ -34,6 +34,11 @@ class MappingManagerStub(object):
                 request_serializer=mapping__manager_dot_mapping__manager__pb2.IsRoutemanagerOfOriginLevelmodeRequest.SerializeToString,
                 response_deserializer=mapping__manager_dot_mapping__manager__pb2.IsRoutemanagerOfOriginLevelmodeResponse.FromString,
                 )
+        self.GetQuestLayerToScanOfOrigin = channel.unary_unary(
+                '/mapadroid.mapping_manager.MappingManager/GetQuestLayerToScanOfOrigin',
+                request_serializer=mapping__manager_dot_mapping__manager__pb2.GetQuestLayerToScanOfOriginRequest.SerializeToString,
+                response_deserializer=mapping__manager_dot_mapping__manager__pb2.GetQuestLayerToScanOfOriginResponse.FromString,
+                )
 
 
 class MappingManagerServicer(object):
@@ -63,6 +68,12 @@ class MappingManagerServicer(object):
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
+    def GetQuestLayerToScanOfOrigin(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
 
 def add_MappingManagerServicer_to_server(servicer, server):
     rpc_method_handlers = {
@@ -85,6 +96,11 @@ def add_MappingManagerServicer_to_server(servicer, server):
                     servicer.IsRoutemanagerOfOriginLevelmode,
                     request_deserializer=mapping__manager_dot_mapping__manager__pb2.IsRoutemanagerOfOriginLevelmodeRequest.FromString,
                     response_serializer=mapping__manager_dot_mapping__manager__pb2.IsRoutemanagerOfOriginLevelmodeResponse.SerializeToString,
+            ),
+            'GetQuestLayerToScanOfOrigin': grpc.unary_unary_rpc_method_handler(
+                    servicer.GetQuestLayerToScanOfOrigin,
+                    request_deserializer=mapping__manager_dot_mapping__manager__pb2.GetQuestLayerToScanOfOriginRequest.FromString,
+                    response_serializer=mapping__manager_dot_mapping__manager__pb2.GetQuestLayerToScanOfOriginResponse.SerializeToString,
             ),
     }
     generic_handler = grpc.method_handlers_generic_handler(
@@ -161,5 +177,22 @@ class MappingManager(object):
         return grpc.experimental.unary_unary(request, target, '/mapadroid.mapping_manager.MappingManager/IsRoutemanagerOfOriginLevelmode',
             mapping__manager_dot_mapping__manager__pb2.IsRoutemanagerOfOriginLevelmodeRequest.SerializeToString,
             mapping__manager_dot_mapping__manager__pb2.IsRoutemanagerOfOriginLevelmodeResponse.FromString,
+            options, channel_credentials,
+            insecure, call_credentials, compression, wait_for_ready, timeout, metadata)
+
+    @staticmethod
+    def GetQuestLayerToScanOfOrigin(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(request, target, '/mapadroid.mapping_manager.MappingManager/GetQuestLayerToScanOfOrigin',
+            mapping__manager_dot_mapping__manager__pb2.GetQuestLayerToScanOfOriginRequest.SerializeToString,
+            mapping__manager_dot_mapping__manager__pb2.GetQuestLayerToScanOfOriginResponse.FromString,
             options, channel_credentials,
             insecure, call_credentials, compression, wait_for_ready, timeout, metadata)

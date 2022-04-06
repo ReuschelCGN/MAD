@@ -4,20 +4,21 @@ from distutils.version import LooseVersion
 from typing import Tuple, Union, Optional, List, AsyncGenerator, Dict
 
 import apkutils
+from aiocache import cached
 from aiofile import async_open
 from apkutils.apkfile import BadZipFile, LargeZipFile
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from mapadroid.utils.apk_enums import APKArch, APKPackage, APKType
+from mapadroid.utils.custom_types import MADapks, MADPackage, MADPackages
 from mapadroid.utils.global_variables import CHUNK_MAX_SIZE, BACKEND_SUPPORTED_VERSIONS
 from mapadroid.utils.logging import LoggerEnums, get_logger
 from .abstract_apk_storage import AbstractAPKStorage
-from mapadroid.utils.apk_enums import APKArch, APKPackage, APKType
-from mapadroid.utils.custom_types import MADapks, MADPackage, MADPackages
 from ..db.helper.FilestoreChunkHelper import FilestoreChunkHelper
 from ..db.helper.MadApkHelper import MadApkHelper
 from ..utils.RestHelper import RestHelper, RestApiResult
 from ..utils.functions import get_version_codes
-from aiocache import cached
+from ..utils.madGlobals import NoMaddevApiTokenError
 
 logger = get_logger(LoggerEnums.package_mgr)
 
@@ -46,64 +47,6 @@ def convert_to_backend(req_type: str, req_arch: str) -> Tuple[Optional[APKType],
     except (TypeError, ValueError):
         raise ValueError('Invalid Architecture.  Valid types are {}'.format([e.name for e in APKArch]))
     return backend_type, backend_arch
-
-
-async def file_generator(db, storage_obj, package: APKType, architecture: APKArch) -> AsyncGenerator:
-    """ Create a generator for retrieving the stored package
-
-    Args:
-        db:
-        storage_obj (AbstractAPKStorage): Storage interface for saving
-        package (APKType): Package to save
-        architecture (APKArch): Architecture of the package to save
-    Returns:
-        Generator for retrieving the package
-    """
-    package_info: Union[MADPackage, MADPackages] = await lookup_package_info(storage_obj, package, architecture)
-    if isinstance(package_info, MADPackage):
-        filename = package_info.filename
-    else:
-        package: MADPackage = package_info.get(architecture)
-        filename = package.filename
-    if storage_obj.get_storage_type() == 'fs':
-        gen_func = _generator_from_filesystem(storage_obj.get_package_path(filename))
-    else:
-        gen_func = _generator_from_db(db, package, architecture)
-    return gen_func
-
-
-async def _generator_from_db(session: AsyncSession, package: APKType, architecture: APKArch) -> AsyncGenerator:
-    """ Create a generator for retrieving the stored package from the database
-
-    Args:
-        package (APKType): Package to save
-        architecture (APKArch): Architecture of the package to save
-    Returns:
-        Generator for retrieving the package
-    """
-    filestore_id: Optional[int] = await MadApkHelper.get_filestore_id(session, package, architecture)
-    if not filestore_id:
-        raise ValueError("Package appears to not be present in the database")
-    chunk_ids: List[int] = await FilestoreChunkHelper.get_chunk_ids(session, filestore_id)
-    if not chunk_ids:
-        raise ValueError("Could not locate chunks in DB, something is broken.")
-    return await FilestoreChunkHelper.get_chunk_data_generator(session, chunk_ids)
-
-
-async def _generator_from_filesystem(full_path) -> AsyncGenerator:
-    """ Create a generator for retrieving the stored package from the disk
-
-    Args:
-        full_path (str): path to the file to retrieve
-    Returns:
-        Generator for retrieving the package
-    """
-    async with async_open(full_path, 'rb') as fh:
-        while True:
-            data = await fh.read(CHUNK_MAX_SIZE)
-            if not data:
-                break
-            yield data
 
 
 async def get_apk_status(storage_obj: AbstractAPKStorage) -> MADapks:
@@ -239,14 +182,14 @@ def lookup_arch_enum(name: Union[int, str]) -> APKArch:
 
 
 async def lookup_package_info(storage_obj: AbstractAPKStorage, package: APKType,
-                              architecture: APKArch = None) -> Union[MADPackage, MADPackages]:
+                              architecture: APKArch = None) -> Optional[Union[MADPackage, MADPackages]]:
     """ Retrieve the information about the package.  If no architecture is specified, it will return MAD_PACKAGES
         containing all relevant architectures
 
     Args:
         storage_obj (AbstractAPKStorage): Storage interface for lookup
         package (APKType): Package to lookup
-        architecture (APKArch): Architecture of the package to loopup
+        architecture (APKArch): Architecture of the package to lookup
 
     Returns:
         Package or Packages info
@@ -271,33 +214,38 @@ async def lookup_package_info(storage_obj: AbstractAPKStorage, package: APKType,
                 raise ValueError("Version is not supported anymore.")
             return fileinfo
         except KeyError:
-            raise ValueError("Unable to find package {} for arch {}".format(package.value, architecture.value))
+            logger.warning("Unable to find package {} for arch {}".format(package.value, architecture.value))
+            return None
 
 
 async def stream_package(session: AsyncSession, storage_obj,
-                         package: APKType, architecture: APKArch) -> Tuple[AsyncGenerator, str, str]:
+                         apk_type: APKType, architecture: APKArch) -> Optional[Tuple[AsyncGenerator, str, str, str]]:
     """ Stream the package to the user
 
     Args:
         session:
         storage_obj (AbstractAPKStorage): Storage interface for grabbing the package
-        package (APKType): Package to lookup
+        apk_type (APKType): Package to lookup
         architecture (APKArch): Architecture of the package to lookup
 
     Returns:
         Tuple consisting of generator to fetch the bytes of the apk, the mimetype and filetype
     """
-    package_info: Union[MADPackage, MADPackages] = await lookup_package_info(storage_obj, package, architecture)
+    package_info: Union[MADPackage, MADPackages] = await lookup_package_info(storage_obj, apk_type, architecture)
+    if not package_info:
+        return None
     if isinstance(package_info, MADPackage):
         mimetype = package_info.mimetype
         filename = package_info.filename
+        version = package_info.version
     else:
         package: MADPackage = package_info.get(architecture)
         mimetype = package.mimetype
         filename = package.filename
+        version = package.version
 
-    gen_func: AsyncGenerator = await file_generator(session, storage_obj, package, architecture)
-    return gen_func, mimetype, filename
+    gen_func: AsyncGenerator = await storage_obj.get_async_generator(session, package_info, apk_type, architecture)
+    return gen_func, mimetype, filename, version
 
 
 async def supported_pogo_version(architecture: APKArch, version: str, token: Optional[str]) -> bool:
@@ -313,8 +261,12 @@ async def supported_pogo_version(architecture: APKArch, version: str, token: Opt
     else:
         bits = '64'
     # Use the MADdev endpoint for supported
-    supported_versions: Dict[str, List[str]] = await get_backend_versions(token)
-    if version in supported_versions[bits]:
+    try:
+        supported_versions: Dict[str, List[str]] = await get_backend_versions(token)
+    except NoMaddevApiTokenError as e:
+        logger.warning("Maddev API token is not set, assuming a supported version being used.")
+        return True
+    if version in supported_versions.get(bits, []):
         return True
     # If the version is not supported, check the local
     # file for supported versions
@@ -356,8 +308,8 @@ async def get_backend_versions(token: Optional[str]) -> Dict[str, List[str]]:
             "the configuration to include 'maddev_api_token' to "
             "utilize the wizard."
         )
-        logger.error(msg)
-        raise ValueError(msg)
+        logger.warning(msg)
+        raise NoMaddevApiTokenError(msg)
     headers = {
         "Authorization": "Bearer {}".format(token),
         "Accept": "application/json",

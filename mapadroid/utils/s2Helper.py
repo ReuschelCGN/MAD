@@ -68,7 +68,7 @@ class S2Helper:
 
     # the following stuff is drafts for further consideration
     @staticmethod
-    def _generate_locations(distance: float, geofence_helper: GeofenceHelper):
+    def generate_locations(distance: float, geofence_helper: GeofenceHelper):
         south, east, north, west = geofence_helper.get_polygon_from_fence()
 
         corners = [
@@ -109,9 +109,6 @@ class S2Helper:
             if not results:
                 logger.error('No cells regarded as valid for desired scan area. Check your provided geofences. '
                              'Aborting.')
-            else:
-                logger.info("Ordering location")
-                results = S2Helper.order_location_list_rows(results)
         return results
 
     @staticmethod

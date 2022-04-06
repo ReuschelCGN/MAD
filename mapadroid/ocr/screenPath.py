@@ -463,7 +463,8 @@ class WordToScreenMatching(object):
                            f"(width is {self._width}, height is {self._height})")
             return ScreenType.ERROR
         logger.info("Click accept button")
-        await self._communicator.click(520, 1185)
+        await self._communicator.touch_and_hold(int(360), int(1080), int(360), int(500))
+        await self._communicator.click(480, 1080)
         await asyncio.sleep(10)
         return ScreenType.UNDEFINED
 
@@ -666,9 +667,9 @@ class WordToScreenMatching(object):
         await self.__click_center_button_text(click_text, diff, global_dict)
 
     async def _take_and_analyze_screenshot(self, delay_after=0.0, delay_before=0.0, errorscreen: bool = False) -> \
-    Optional[Tuple[ScreenType,
-                   Optional[
-                       dict], int]]:
+            Optional[Tuple[ScreenType,
+                           Optional[
+                               dict], int]]:
         if not await self._take_screenshot(delay_before=await self.get_devicesettings_value(
                 MappingManagerDevicemappingKey.POST_SCREENSHOT_DELAY, 1),
                                            delay_after=2):

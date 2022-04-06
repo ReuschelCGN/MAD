@@ -124,20 +124,21 @@ class WebhookWorker:
                 current_pl_num += 1
             current_wh_num += 1
 
-    async def __prepare_quest_data(self, quest_data: Dict[int, Tuple[Pokestop, TrsQuest]]):
+    async def __prepare_quest_data(self, quest_data: Dict[int, Tuple[Pokestop, Dict[int, TrsQuest]]]):
         ret = []
-        for stop, quest in quest_data.values():
+        for stop, quests in quest_data.values():
             if self.__is_in_excluded_area([stop.latitude, stop.longitude]):
                 continue
+            for layer, quest in quests.items():
+                try:
+                    transformed_quest = await self.__quest_gen.generate_quest(stop, quest)
+                    quest_payload = self.__construct_quest_payload(transformed_quest)
 
-            try:
-                transformed_quest = await self.__quest_gen.generate_quest(stop, quest)
-                quest_payload = self.__construct_quest_payload(transformed_quest)
-
-                entire_payload = {"type": "quest", "message": quest_payload}
-                ret.append(entire_payload)
-            except Exception as e:
-                logger.error("Exception occured while generating quest webhook: {}", e)
+                    entire_payload = {"type": "quest", "message": quest_payload}
+                    ret.append(entire_payload)
+                except Exception as e:
+                    logger.error("Exception occured while generating quest webhook: {}", e)
+                    logger.exception(e)
 
         return ret
 
@@ -150,7 +151,7 @@ class WebhookWorker:
                 "quest_type": transformed_quest["quest_type"],
                 "quest_type_raw": transformed_quest["quest_type_raw"],
                 "item_type": transformed_quest["item_type"],
-                "name": transformed_quest["name"].replace('"', '\\"').replace("\n", "\\n"),
+                "name": transformed_quest["name"].replace('"', '\\"').replace("\n", "\\n") if transformed_quest.get("name") else None,
                 "url": transformed_quest["url"],
                 "timestamp": transformed_quest["timestamp"],
                 "quest_reward_type": transformed_quest["quest_reward_type"],
@@ -536,7 +537,8 @@ class WebhookWorker:
                 "team_id": gym["team_id"],
                 "name": gym["name"],
                 "slots_available": gym["slots_available"],
-                "is_ar_scan_eligible": gym["is_ar_scan_eligible"]
+                "is_ar_scan_eligible": gym["is_ar_scan_eligible"],
+                "is_in_battle": gym["is_in_battle"]
             }
 
             if gym.get("description", None) is not None:

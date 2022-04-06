@@ -1,7 +1,6 @@
 from abc import ABC, abstractmethod
 
 from mapadroid.websocket.AbstractCommunicator import AbstractCommunicator
-
 from mapadroid.worker.strategy.AbstractWorkerStrategy import AbstractWorkerStrategy
 
 
@@ -32,6 +31,16 @@ class AbstractWorker(ABC):
         await self._scan_strategy.worker_specific_setup_stop()
         self._scan_strategy = strategy
         await self._scan_strategy_changed()
+
+    @abstractmethod
+    async def cancel_scan(self) -> None:
+        """
+        Method resulting in the current scan to be cancelled.
+        This should not stop the worker itself from running
+        Returns:
+
+        """
+        pass
 
     @abstractmethod
     async def _scan_strategy_changed(self):

@@ -6,12 +6,12 @@ import sys
 from asyncio import Task
 
 import grpc
-from websockets.exceptions import WebSocketException
 import pkg_resources
+from websockets.exceptions import WebSocketException
 
 from mapadroid.utils.logging import get_logger, LoggerEnums, InterceptHandler
 from mapadroid.utils.madGlobals import application_args, WebsocketWorkerConnectionClosedException, \
-    InternalStopWorkerException, WebsocketWorkerTimeoutException
+    InternalStopWorkerException, WebsocketWorkerTimeoutException, PrioQueueNoDueEntry
 
 logger = get_logger(LoggerEnums.system)
 
@@ -79,14 +79,17 @@ def install_task_create_excepthook():
     ) -> None:
         try:
             task.result()
-        except asyncio.CancelledError as e:
-            raise e  # Task cancellation should not be logged as an error.
+        except (asyncio.CancelledError, PrioQueueNoDueEntry, asyncio.exceptions.TimeoutError) as e:
+            """
+            Exceptions that should not be logged at all
+            """
+            raise e
         except (IndexError, WebSocketException, WebsocketWorkerConnectionClosedException,
                 InternalStopWorkerException, grpc.aio._call.AioRpcError,
                 WebsocketWorkerTimeoutException) as e:
             logger.debug("Potential uncaught exception: " + str(e))
             logger.debug3("Potential uncaught exception.", exc_info=True)
-            raise e  # We regularly throw index error in prioQ, websocket exceptions should be handled anyway as well
+            raise e  # websocket exceptions should be handled anyway as well
         # Ad the pylint ignore: we want to handle all exceptions here so that the result of the task
         # is properly logged. There is no point re-raising the exception in this callback.
         except Exception as e:  # pylint: disable=broad-except

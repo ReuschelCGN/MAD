@@ -1,7 +1,9 @@
 import asyncio
 import math
 import time
-from typing import Dict, Tuple, Optional, List
+from typing import Dict, Tuple, Optional, List, Set
+
+from loguru import logger
 
 from mapadroid.data_handler.mitm_data.holder.latest_mitm_data.LatestMitmDataEntry import LatestMitmDataEntry
 from mapadroid.db.helper.PokemonHelper import PokemonHelper
@@ -9,11 +11,11 @@ from mapadroid.mapping_manager.MappingManagerDevicemappingKey import MappingMana
 from mapadroid.utils.DatetimeWrapper import DatetimeWrapper
 from mapadroid.utils.ProtoIdentifier import ProtoIdentifier
 from mapadroid.utils.collections import Location
+from mapadroid.utils.geo import get_distance_of_two_points_in_meters
 from mapadroid.utils.madGlobals import TransportType, InternalStopWorkerException
 from mapadroid.worker.ReceivedTypeEnum import ReceivedType
 from mapadroid.worker.WorkerType import WorkerType
 from mapadroid.worker.strategy.AbstractMitmBaseStrategy import AbstractMitmBaseStrategy
-from loguru import logger
 
 
 class WorkerMitmStrategy(AbstractMitmBaseStrategy):
@@ -25,7 +27,7 @@ class WorkerMitmStrategy(AbstractMitmBaseStrategy):
         if not latest:
             return type_of_data_found, data_found
         # proto has previously been received, let's check the timestamp...
-        mode = await self._mapping_manager.routemanager_get_mode(self._area_id)
+        mode: WorkerType = await self._mapping_manager.routemanager_get_mode(self._area_id)
         timestamp_of_proto: int = latest.timestamp_of_data_retrieval
         logger.debug("Latest timestamp: {} vs. timestamp waited for: {} of proto {}",
                      DatetimeWrapper.fromtimestamp(timestamp_of_proto), DatetimeWrapper.fromtimestamp(timestamp),
@@ -40,12 +42,18 @@ class WorkerMitmStrategy(AbstractMitmBaseStrategy):
         latest_proto_data: dict = latest.data
         if latest_proto_data is None:
             return ReceivedType.UNDEFINED, data_found
-        key_to_check: str = "wild_pokemon" if mode in [WorkerType.MON_MITM.value, WorkerType.IV_MITM.value] else "forts"
-        if self._gmo_cells_contain_multiple_of_key(latest_proto_data, key_to_check):
+        if proto_to_wait_for == ProtoIdentifier.GMO:
+            if ((mode in [WorkerType.MON_MITM, WorkerType.IV_MITM]
+                    and self._gmo_contains_wild_mons_closeby(latest_proto_data))
+                    or (mode not in [WorkerType.MON_MITM, WorkerType.IV_MITM]
+                        and self._gmo_cells_contain_multiple_of_key(latest_proto_data, "forts"))):
+                data_found = latest_proto_data
+                type_of_data_found = ReceivedType.GMO
+            else:
+                logger.debug("Data looked for not in GMO")
+        elif proto_to_wait_for == ProtoIdentifier.ENCOUNTER and latest_proto_data.get('status', None) == 1:
             data_found = latest_proto_data
-            type_of_data_found = ReceivedType.GMO
-        else:
-            logger.debug("{} not in GMO", key_to_check)
+            type_of_data_found = ReceivedType.MON
 
         return type_of_data_found, data_found
 
@@ -55,13 +63,13 @@ class WorkerMitmStrategy(AbstractMitmBaseStrategy):
         await self.__update_injection_settings()
 
         if not await self._wait_for_injection() or self._worker_state.stop_worker_event.is_set():
-            raise InternalStopWorkerException
+            raise InternalStopWorkerException("Worker stopped in pre work loop")
 
         reached_main_menu = await self._check_pogo_main_screen(10, True)
         if not reached_main_menu:
             if not await self._restart_pogo():
                 # TODO: put in loop, count up for a reboot ;)
-                raise InternalStopWorkerException
+                raise InternalStopWorkerException("Worker stopped in pre work loop")
 
     async def pre_location_update(self):
         await self.__update_injection_settings()
@@ -70,12 +78,8 @@ class WorkerMitmStrategy(AbstractMitmBaseStrategy):
         distance, routemanager_settings = await self._get_route_manager_settings_and_distance_to_current_location()
         # TODO: Either remove routemanager from scan strategy in case we split apart everything or access init
         #  bool directly...
-        if not await self._mapping_manager.routemanager_get_init(self._area_id):
-            speed = getattr(routemanager_settings, "speed", 0)
-            max_distance = getattr(routemanager_settings, "max_distance", None)
-        else:
-            speed = int(25)
-            max_distance = int(200)
+        speed = getattr(routemanager_settings, "speed", 0)
+        max_distance = getattr(routemanager_settings, "max_distance", None)
 
         if (not speed or speed == 0 or
                 (max_distance and 0 < max_distance < distance) or
@@ -115,12 +119,85 @@ class WorkerMitmStrategy(AbstractMitmBaseStrategy):
 
     async def post_move_location_routine(self, timestamp):
         # TODO: pass the appropriate proto number if IV?
-        type_received, data = await self._wait_for_data(timestamp)
-        if type_received != ReceivedType.GMO:
+        type_received, data_gmo = await self._wait_for_data(timestamp)
+        if type_received != ReceivedType.GMO or not data_gmo:
             logger.warning("Worker failed to retrieve proper data at {}, {}. Worker will continue with "
                            "the next location",
                            self._worker_state.current_location.lat,
                            self._worker_state.current_location.lng)
+            return
+        # Wait for IV data if applicable
+        mode: WorkerType = await self._mapping_manager.routemanager_get_mode(self._area_id)
+        if mode in [WorkerType.MON_MITM, WorkerType.IV_MITM] and await self._gmo_contains_mons_to_be_encountered(
+                data_gmo):
+            type_received, data = await self._wait_for_data(timestamp, ProtoIdentifier.ENCOUNTER, 40)
+            if type_received != ReceivedType.MON:
+                logger.warning("Worker failed to receive encounter data at {}, {}. Worker will continue with "
+                               "the next location",
+                               self._worker_state.current_location.lat,
+                               self._worker_state.current_location.lng)
+                return
+
+    def _gmo_contains_wild_mons_closeby(self, gmo) -> bool:
+        cells = gmo.get("cells", None)
+        if not cells:
+            return False
+        for cell in cells:
+            for wild_mon in cell["wild_pokemon"]:
+                lat = wild_mon["latitude"]
+                lon = wild_mon["longitude"]
+                distance_to_mon: float = get_distance_of_two_points_in_meters(lat, lon,
+                                                                              self._worker_state.current_location.lat,
+                                                                              self._worker_state.current_location.lng)
+                # TODO: Distance probably incorrect
+                if distance_to_mon > 70:
+                    logger.debug("Distance to mon around considered to be too far away to await encounter")
+                    continue
+                else:
+                    logger.debug2("Mon at {}, {} at distance {}", lat, lon, distance_to_mon)
+                    return True
+        return False
+
+    async def _gmo_contains_mons_to_be_encountered(self, gmo) -> bool:
+        cells = gmo.get("cells", None)
+        if not cells:
+            return False
+        ids_to_encounter: Set[int] = set()
+        mode: WorkerType = await self._mapping_manager.routemanager_get_mode(self._area_id)
+        if mode == WorkerType.MON_MITM:
+            routemanager_settings = await self._mapping_manager.routemanager_get_settings(self._area_id)
+            if routemanager_settings is not None:
+                # TODO: Moving to async
+                ids_iv = self._mapping_manager.get_monlist(self._area_id)
+                ids_to_encounter = {id_to_encounter for id_to_encounter in ids_iv}
+        else:
+            ids_iv = await self._mapping_manager.routemanager_get_encounter_ids_left(self._area_id)
+            ids_to_encounter = {id_to_encounter for id_to_encounter in ids_iv}
+
+        for cell in cells:
+            for wild_mon in cell["wild_pokemon"]:
+                spawnid = int(str(wild_mon["spawnpoint_id"]), 16)
+                lat = wild_mon["latitude"]
+                lon = wild_mon["longitude"]
+                distance_to_mon: float = get_distance_of_two_points_in_meters(lat, lon,
+                                                                              self._worker_state.current_location.lat,
+                                                                              self._worker_state.current_location.lng)
+                # TODO: Distance probably incorrect
+                if distance_to_mon > 70:
+                    logger.debug("Distance to mon around considered to be too far away to await encounter")
+                    continue
+                mon_id = wild_mon["pokemon_data"]["id"]
+                encounter_id = wild_mon["encounter_id"]
+                if encounter_id in self._encounter_ids:
+                    # already encountered
+                    continue
+                # now check whether mon_mitm's mon IDs to scan are present and unscanned
+                # OR iv_mitm...
+                if mode == WorkerType.MON_MITM and mon_id in ids_to_encounter:
+                    return True
+                elif mode == WorkerType.IV_MITM and encounter_id in ids_to_encounter:
+                    return True
+        return False
 
     async def worker_specific_setup_start(self):
         pass
@@ -132,7 +209,7 @@ class WorkerMitmStrategy(AbstractMitmBaseStrategy):
         injected_settings = {}
 
         # don't try catch here, the injection settings update is called in the main loop anyway...
-        routemanager_mode = await self._mapping_manager.routemanager_get_mode(self._area_id)
+        routemanager_mode: WorkerType = await self._mapping_manager.routemanager_get_mode(self._area_id)
 
         ids_iv = []
         if routemanager_mode is None:
@@ -173,7 +250,8 @@ class WorkerMitmStrategy(AbstractMitmBaseStrategy):
             if encounter_ids:
                 logger.debug("Found {} new encounter_ids", len(encounter_ids))
             # str keys since protobuf requires string keys for json...
-            encounter_ids_prepared: Dict[str, int] = { str(encounter_id): timestamp for encounter_id, timestamp in encounter_ids.items() }
+            encounter_ids_prepared: Dict[str, int] = {str(encounter_id): timestamp for encounter_id, timestamp in
+                                                      encounter_ids.items()}
             self._encounter_ids: Dict[str, int] = {**encounter_ids_prepared, **self._encounter_ids}
             # allow one minute extra life time, because the clock on some devices differs, newer got why this problem
             # apears but it is a fact.

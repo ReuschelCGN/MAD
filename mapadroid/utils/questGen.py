@@ -152,7 +152,8 @@ class QuestGen:
             'quest_condition': quest.quest_condition,
             'quest_template': quest.quest_template,
             'is_ar_scan_eligible': stop.is_ar_scan_eligible,
-            'quest_title': quest.quest_title
+            'quest_title': quest.quest_title,
+            'quest_layer': quest.layer
         })
         return quest_raw
 
@@ -354,8 +355,9 @@ class QuestGen:
                             arr['poke'] = await i8ln(await self.pokemonname(pt[0]))
                         else:
                             for ty in pt:
-                                arr['poke'] += (_('or ') if last == cur else '') + await i8ln(await self.pokemonname(ty)) + (
-                                    '' if last == cur else ', ')
+                                arr['poke'] += (_('or ') if last == cur else '') + await i8ln(
+                                    await self.pokemonname(ty)) + (
+                                                   '' if last == cur else ', ')
                                 cur += 1
                         text = _('{mega}Evolve {0} {poke}')
         elif typeid == 16:
@@ -430,8 +432,9 @@ class QuestGen:
                         arr['poke'] = await i8ln(await self.pokemonname(pt[0]))
                     else:
                         for ty in pt:
-                            arr['poke'] += (_('or ') if last == cur else '') + await i8ln(await self.pokemonname(ty)) + (
-                                '' if last == cur else ', ')
+                            arr['poke'] += (_('or ') if last == cur else '') + await i8ln(
+                                await self.pokemonname(ty)) + (
+                                               '' if last == cur else ', ')
                             cur += 1
                     text = _("Take {0} snapshots of {poke}")
             elif re.search(r'"type": 1', condition) is not None:

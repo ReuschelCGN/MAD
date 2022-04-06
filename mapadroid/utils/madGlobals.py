@@ -38,6 +38,27 @@ class InternalStopWorkerException(Exception):
     pass
 
 
+class PrioQueueNoDueEntry(Exception):
+    """
+    Exception to be called when the prio q is empty during checks
+    """
+    pass
+
+
+class NoMaddevApiTokenError(Exception):
+    """
+    Exception to be called when there is no maddev_api_token set
+    """
+    pass
+
+
+class RoutemanagerShuttingDown(Exception):
+    """
+    Exception indicating a shutdown of the routemanager
+    """
+    pass
+
+
 class ScreenshotType(Enum):
     JPEG = 0
     PNG = 1
@@ -48,6 +69,11 @@ class TeamColours(Enum):
     BLUE = "Blue"
     RED = "Red"
     WHITE = "White"
+
+
+class RoutecalculationTypes(Enum):
+    TSP_QUICK = 0,
+    OR_TOOLS = 1
 
 
 class MonSeenTypes(IntEnum):
@@ -82,3 +108,8 @@ class FortSearchResultTypes(Enum):
     UNAVAILABLE = 6
     OUT_OF_RANGE = 7
     FULL = 8
+
+
+class QuestLayer(Enum):
+    AR = 0
+    NON_AR = 1

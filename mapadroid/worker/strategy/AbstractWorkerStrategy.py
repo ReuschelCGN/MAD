@@ -232,7 +232,7 @@ class AbstractWorkerStrategy(ABC):
             value = await self._mapping_manager.get_devicesetting_value_of_device(self._worker_state.origin, key)
         except (EOFError, FileNotFoundError) as e:
             logger.warning("Failed fetching devicemappings with description: {}. Stopping worker", e)
-            raise InternalStopWorkerException
+            raise InternalStopWorkerException("Failed fetching devicesettings value")
         return value if value is not None else default_value
 
     async def _wait_pogo_start_delay(self):
@@ -245,7 +245,7 @@ class AbstractWorkerStrategy(ABC):
             if not await self._mapping_manager.routemanager_present(self._area_id) \
                     or self._worker_state.stop_worker_event.is_set():
                 logger.error("Killed while waiting for pogo start")
-                raise InternalStopWorkerException
+                raise InternalStopWorkerException("Worker killed while waiting for pogo to start")
             await asyncio.sleep(1)
             delay_count += 1
 
@@ -273,7 +273,16 @@ class AbstractWorkerStrategy(ABC):
     async def _handle_screen(self):
         screen_type: ScreenType = ScreenType.UNDEFINED
         while not self._worker_state.stop_worker_event.is_set():
-            # TODO: Make this not block the loop somehow... asyncio waiting for a thread?
+            if self._worker_state.login_error_count > 2:
+                logger.warning('Could not login again - (clearing game data + restarting device')
+                await self.stop_pogo()
+                await self._communicator.clear_app_cache("com.nianticlabs.pokemongo")
+                if await self.get_devicesettings_value(MappingManagerDevicemappingKey.CLEAR_GAME_DATA, False):
+                    logger.info('Clearing game data')
+                    await self._communicator.reset_app_data("com.nianticlabs.pokemongo")
+                self._worker_state.login_error_count = 0
+                await self._reboot()
+                break
             screen_type: ScreenType = await self._word_to_screen_matching.detect_screentype(
                 y_offset=self._worker_state.resolution_calculator.y_offset)
             if screen_type in [ScreenType.POGO, ScreenType.QUEST]:
@@ -303,8 +312,8 @@ class AbstractWorkerStrategy(ABC):
                 await asyncio.sleep(20)
             elif screen_type == ScreenType.CLOSE:
                 logger.debug("screendetection found pogo closed, start it...")
-                await self.start_pogo()
                 self._worker_state.login_error_count += 1
+                await self.start_pogo()
             elif screen_type == ScreenType.GAMEDATA:
                 logger.info('Error getting Gamedata or strange ggl message appears')
                 self._worker_state.login_error_count += 1
@@ -337,17 +346,6 @@ class AbstractWorkerStrategy(ABC):
                 await self._reboot()
                 break
 
-            if self._worker_state.login_error_count > 2:
-                logger.warning('Could not login again - (clearing game data + restarting device')
-                await self.stop_pogo()
-                await self._communicator.clear_app_cache("com.nianticlabs.pokemongo")
-                if await self.get_devicesettings_value(MappingManagerDevicemappingKey.CLEAR_GAME_DATA, False):
-                    logger.info('Clearing game data')
-                    await self._communicator.reset_app_data("com.nianticlabs.pokemongo")
-                self._worker_state.login_error_count = 0
-                await self._reboot()
-                break
-
             self._worker_state.last_screen_type = screen_type
         return screen_type
 
@@ -358,10 +356,11 @@ class AbstractWorkerStrategy(ABC):
         if application_args.enable_worker_specific_extra_start_stop_handling:
             await self.worker_specific_setup_stop()
             await asyncio.sleep(1)
-        await self._communicator.magisk_off()
-        await asyncio.sleep(1)
-        await self._communicator.magisk_on()
-        await asyncio.sleep(1)
+        if await self.get_devicesettings_value(MappingManagerDevicemappingKey.EXTENDED_PERMISSION_TOGGLING, False):
+            await self._communicator.magisk_off()
+            await asyncio.sleep(1)
+            await self._communicator.magisk_on()
+            await asyncio.sleep(1)
         await self._communicator.start_app("com.nianticlabs.pokemongo")
         await asyncio.sleep(25)
         await self.stop_pogo()
@@ -376,8 +375,7 @@ class AbstractWorkerStrategy(ABC):
         await self.turn_screen_on_and_start_pogo()
         if not self._ensure_pogo_topmost():
             logger.error('Kill Worker...')
-            self._worker_state.stop_worker_event.set()
-            return False
+            raise InternalStopWorkerException("Pogo not topmost app during switching of users")
         logger.info('Switching finished ...')
         return True
 
@@ -410,10 +408,10 @@ class AbstractWorkerStrategy(ABC):
             routemanager_settings = await self._mapping_manager.routemanager_get_settings(self._area_id)
             worker_type: WorkerType = WorkerType(routemanager_settings.mode)
             await self._stats_handler.stats_collect_location_data(self._worker_state.origin,
-                                                          self._worker_state.current_location, True,
-                                                          now_ts, PositionType.REBOOT, 0,
-                                                          worker_type, TransportType.TELEPORT,
-                                                          now_ts)
+                                                                  self._worker_state.current_location, True,
+                                                                  now_ts, PositionType.REBOOT, 0,
+                                                                  worker_type, TransportType.TELEPORT,
+                                                                  now_ts)
         if await self.get_devicesettings_value(MappingManagerDevicemappingKey.REBOOT, True):
             async with self._db_wrapper as session, session:
                 try:
@@ -445,10 +443,12 @@ class AbstractWorkerStrategy(ABC):
                 now_ts: int = int(time.time())
                 routemanager_settings = await self._mapping_manager.routemanager_get_settings(self._area_id)
                 worker_type: WorkerType = WorkerType(routemanager_settings.mode)
+                if not self._worker_state.current_location:
+                    self._worker_state.current_location = Location(0, 0)
                 await self._stats_handler.stats_collect_location_data(self._worker_state.origin,
-                                                              self._worker_state.current_location, True, now_ts,
-                                                              PositionType.RESTART, 0, worker_type,
-                                                              self._worker_state.last_transport_type, now_ts)
+                                                                      self._worker_state.current_location, True, now_ts,
+                                                                      PositionType.RESTART, 0, worker_type,
+                                                                      self._worker_state.last_transport_type, now_ts)
             return await self.start_pogo()
         else:
             logger.warning("Failed restarting PoGo - reboot device")
@@ -562,10 +562,10 @@ class AbstractWorkerStrategy(ABC):
 
     async def _update_screen_size(self):
         if self._worker_state.stop_worker_event.is_set():
-            raise WebsocketWorkerRemovedException
+            raise WebsocketWorkerRemovedException("Worker is to be stopped rather than update screensize")
         screen = await self._communicator.get_screensize()
         if not screen:
-            raise WebsocketWorkerRemovedException
+            raise WebsocketWorkerRemovedException("Could not retrieve screensize")
 
         screen = screen.strip().split(' ')
         x_offset = await self.get_devicesettings_value(MappingManagerDevicemappingKey.SCREENSHOT_X_OFFSET, 0)
@@ -573,7 +573,7 @@ class AbstractWorkerStrategy(ABC):
         if await self.get_devicesettings_value(MappingManagerDevicemappingKey.SOFTBAR_ENABLED, False):
             y_offset_raw: Optional[MessageTyping] = await self._communicator.get_y_offset()
             if not y_offset_raw:
-                raise WebsocketWorkerRemovedException
+                raise WebsocketWorkerRemovedException("No y offset available")
             else:
                 y_offset = int(y_offset_raw.strip())
         else:
@@ -591,6 +591,8 @@ class AbstractWorkerStrategy(ABC):
         # self._resocalc.get_x_y_ratio(self, self._screen_x, self._screen_y, x_offset, y_offset)
 
     async def _grant_permissions_to_pogo(self) -> None:
+        if not await self.get_devicesettings_value(MappingManagerDevicemappingKey.EXTENDED_PERMISSION_TOGGLING, False):
+            return
         command: str = "su -c 'magiskhide --add com.nianticlabs.pokemongo " \
                        "&& pm grant com.nianticlabs.pokemongo android.permission.ACCESS_FINE_LOCATION " \
                        "&& pm grant com.nianticlabs.pokemongo android.permission.ACCESS_COARSE_LOCATION " \

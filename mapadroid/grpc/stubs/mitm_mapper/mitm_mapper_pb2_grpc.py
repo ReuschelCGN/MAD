@@ -66,6 +66,16 @@ class MitmMapperStub(object):
                 request_serializer=shared_dot_Worker__pb2.Worker.SerializeToString,
                 response_deserializer=mitm__mapper_dot_mitm__mapper__pb2.LastKnownLocationResponse.FromString,
                 )
+        self.SetQuestsHeld = channel.unary_unary(
+                '/mapadroid.mitm_mapper.MitmMapper/SetQuestsHeld',
+                request_serializer=mitm__mapper_dot_mitm__mapper__pb2.SetQuestsHeldRequest.SerializeToString,
+                response_deserializer=shared_dot_Ack__pb2.Ack.FromString,
+                )
+        self.GetQuestsHeld = channel.unary_unary(
+                '/mapadroid.mitm_mapper.MitmMapper/GetQuestsHeld',
+                request_serializer=shared_dot_Worker__pb2.Worker.SerializeToString,
+                response_deserializer=mitm__mapper_dot_mitm__mapper__pb2.GetQuestsHeldResponse.FromString,
+                )
 
 
 class MitmMapperServicer(object):
@@ -131,6 +141,18 @@ class MitmMapperServicer(object):
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
+    def SetQuestsHeld(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def GetQuestsHeld(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
 
 def add_MitmMapperServicer_to_server(servicer, server):
     rpc_method_handlers = {
@@ -183,6 +205,16 @@ def add_MitmMapperServicer_to_server(servicer, server):
                     servicer.GetLastKnownLocation,
                     request_deserializer=shared_dot_Worker__pb2.Worker.FromString,
                     response_serializer=mitm__mapper_dot_mitm__mapper__pb2.LastKnownLocationResponse.SerializeToString,
+            ),
+            'SetQuestsHeld': grpc.unary_unary_rpc_method_handler(
+                    servicer.SetQuestsHeld,
+                    request_deserializer=mitm__mapper_dot_mitm__mapper__pb2.SetQuestsHeldRequest.FromString,
+                    response_serializer=shared_dot_Ack__pb2.Ack.SerializeToString,
+            ),
+            'GetQuestsHeld': grpc.unary_unary_rpc_method_handler(
+                    servicer.GetQuestsHeld,
+                    request_deserializer=shared_dot_Worker__pb2.Worker.FromString,
+                    response_serializer=mitm__mapper_dot_mitm__mapper__pb2.GetQuestsHeldResponse.SerializeToString,
             ),
     }
     generic_handler = grpc.method_handlers_generic_handler(
@@ -361,5 +393,39 @@ class MitmMapper(object):
         return grpc.experimental.unary_unary(request, target, '/mapadroid.mitm_mapper.MitmMapper/GetLastKnownLocation',
             shared_dot_Worker__pb2.Worker.SerializeToString,
             mitm__mapper_dot_mitm__mapper__pb2.LastKnownLocationResponse.FromString,
+            options, channel_credentials,
+            insecure, call_credentials, compression, wait_for_ready, timeout, metadata)
+
+    @staticmethod
+    def SetQuestsHeld(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(request, target, '/mapadroid.mitm_mapper.MitmMapper/SetQuestsHeld',
+            mitm__mapper_dot_mitm__mapper__pb2.SetQuestsHeldRequest.SerializeToString,
+            shared_dot_Ack__pb2.Ack.FromString,
+            options, channel_credentials,
+            insecure, call_credentials, compression, wait_for_ready, timeout, metadata)
+
+    @staticmethod
+    def GetQuestsHeld(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(request, target, '/mapadroid.mitm_mapper.MitmMapper/GetQuestsHeld',
+            shared_dot_Worker__pb2.Worker.SerializeToString,
+            mitm__mapper_dot_mitm__mapper__pb2.GetQuestsHeldResponse.FromString,
             options, channel_credentials,
             insecure, call_credentials, compression, wait_for_ready, timeout, metadata)

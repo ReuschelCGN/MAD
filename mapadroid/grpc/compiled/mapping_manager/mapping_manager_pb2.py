@@ -11,6 +11,7 @@ from google.protobuf import symbol_database as _symbol_database
 _sym_db = _symbol_database.Default()
 
 
+from mapadroid.grpc.compiled.shared import Worker_pb2 as shared_dot_Worker__pb2
 
 
 DESCRIPTOR = _descriptor.FileDescriptor(
@@ -19,24 +20,25 @@ DESCRIPTOR = _descriptor.FileDescriptor(
   syntax='proto3',
   serialized_options=None,
   create_key=_descriptor._internal_create_key,
-  serialized_pb=b'\n%mapping_manager/mapping_manager.proto\x12\x19mapadroid.mapping_manager\"\x16\n\x06Worker\x12\x0c\n\x04name\x18\x01 \x01(\t\"[\n&IsRoutemanagerOfOriginLevelmodeRequest\x12\x31\n\x06worker\x18\x01 \x01(\x0b\x32!.mapadroid.mapping_manager.Worker\"?\n\'IsRoutemanagerOfOriginLevelmodeResponse\x12\x14\n\x0cis_levelmode\x18\x01 \x01(\x08\"S\n\x1eGetSafeItemsNotToDeleteRequest\x12\x31\n\x06worker\x18\x01 \x01(\x0b\x32!.mapadroid.mapping_manager.Worker\"3\n\x1fGetSafeItemsNotToDeleteResponse\x12\x10\n\x08item_ids\x18\x01 \x03(\x05\",\n*GetAllowedAuthenticationCredentialsRequest\"\xe5\x01\n+GetAllowedAuthenticationCredentialsResponse\x12{\n\x13\x61llowed_credentials\x18\x01 \x03(\x0b\x32^.mapadroid.mapping_manager.GetAllowedAuthenticationCredentialsResponse.AllowedCredentialsEntry\x1a\x39\n\x17\x41llowedCredentialsEntry\x12\x0b\n\x03key\x18\x01 \x01(\t\x12\r\n\x05value\x18\x02 \x01(\t:\x02\x38\x01\"\x1c\n\x1aGetAllLoadedOriginsRequest\"5\n\x1bGetAllLoadedOriginsResponse\x12\x16\n\x0eloaded_origins\x18\x01 \x03(\t2\x8c\x05\n\x0eMappingManager\x12\xb4\x01\n#GetAllowedAuthenticationCredentials\x12\x45.mapadroid.mapping_manager.GetAllowedAuthenticationCredentialsRequest\x1a\x46.mapadroid.mapping_manager.GetAllowedAuthenticationCredentialsResponse\x12\x84\x01\n\x13GetAllLoadedOrigins\x12\x35.mapadroid.mapping_manager.GetAllLoadedOriginsRequest\x1a\x36.mapadroid.mapping_manager.GetAllLoadedOriginsResponse\x12\x90\x01\n\x17GetSafeItemsNotToDelete\x12\x39.mapadroid.mapping_manager.GetSafeItemsNotToDeleteRequest\x1a:.mapadroid.mapping_manager.GetSafeItemsNotToDeleteResponse\x12\xa8\x01\n\x1fIsRoutemanagerOfOriginLevelmode\x12\x41.mapadroid.mapping_manager.IsRoutemanagerOfOriginLevelmodeRequest\x1a\x42.mapadroid.mapping_manager.IsRoutemanagerOfOriginLevelmodeResponseb\x06proto3'
-)
+  serialized_pb=b'\n%mapping_manager/mapping_manager.proto\x12\x19mapadroid.mapping_manager\x1a\x13shared/Worker.proto\"N\n\"GetQuestLayerToScanOfOriginRequest\x12(\n\x06worker\x18\x01 \x01(\x0b\x32\x18.mapadroid.shared.Worker\"C\n#GetQuestLayerToScanOfOriginResponse\x12\x12\n\x05layer\x18\x01 \x01(\x05H\x00\x88\x01\x01\x42\x08\n\x06_layer\"R\n&IsRoutemanagerOfOriginLevelmodeRequest\x12(\n\x06worker\x18\x01 \x01(\x0b\x32\x18.mapadroid.shared.Worker\"?\n\'IsRoutemanagerOfOriginLevelmodeResponse\x12\x14\n\x0cis_levelmode\x18\x01 \x01(\x08\"J\n\x1eGetSafeItemsNotToDeleteRequest\x12(\n\x06worker\x18\x01 \x01(\x0b\x32\x18.mapadroid.shared.Worker\"3\n\x1fGetSafeItemsNotToDeleteResponse\x12\x10\n\x08item_ids\x18\x01 \x03(\x05\",\n*GetAllowedAuthenticationCredentialsRequest\"\xe5\x01\n+GetAllowedAuthenticationCredentialsResponse\x12{\n\x13\x61llowed_credentials\x18\x01 \x03(\x0b\x32^.mapadroid.mapping_manager.GetAllowedAuthenticationCredentialsResponse.AllowedCredentialsEntry\x1a\x39\n\x17\x41llowedCredentialsEntry\x12\x0b\n\x03key\x18\x01 \x01(\t\x12\r\n\x05value\x18\x02 \x01(\t:\x02\x38\x01\"\x1c\n\x1aGetAllLoadedOriginsRequest\"5\n\x1bGetAllLoadedOriginsResponse\x12\x16\n\x0eloaded_origins\x18\x01 \x03(\t2\xab\x06\n\x0eMappingManager\x12\xb4\x01\n#GetAllowedAuthenticationCredentials\x12\x45.mapadroid.mapping_manager.GetAllowedAuthenticationCredentialsRequest\x1a\x46.mapadroid.mapping_manager.GetAllowedAuthenticationCredentialsResponse\x12\x84\x01\n\x13GetAllLoadedOrigins\x12\x35.mapadroid.mapping_manager.GetAllLoadedOriginsRequest\x1a\x36.mapadroid.mapping_manager.GetAllLoadedOriginsResponse\x12\x90\x01\n\x17GetSafeItemsNotToDelete\x12\x39.mapadroid.mapping_manager.GetSafeItemsNotToDeleteRequest\x1a:.mapadroid.mapping_manager.GetSafeItemsNotToDeleteResponse\x12\xa8\x01\n\x1fIsRoutemanagerOfOriginLevelmode\x12\x41.mapadroid.mapping_manager.IsRoutemanagerOfOriginLevelmodeRequest\x1a\x42.mapadroid.mapping_manager.IsRoutemanagerOfOriginLevelmodeResponse\x12\x9c\x01\n\x1bGetQuestLayerToScanOfOrigin\x12=.mapadroid.mapping_manager.GetQuestLayerToScanOfOriginRequest\x1a>.mapadroid.mapping_manager.GetQuestLayerToScanOfOriginResponseb\x06proto3'
+  ,
+  dependencies=[shared_dot_Worker__pb2.DESCRIPTOR,])
 
 
 
 
-_WORKER = _descriptor.Descriptor(
-  name='Worker',
-  full_name='mapadroid.mapping_manager.Worker',
+_GETQUESTLAYERTOSCANOFORIGINREQUEST = _descriptor.Descriptor(
+  name='GetQuestLayerToScanOfOriginRequest',
+  full_name='mapadroid.mapping_manager.GetQuestLayerToScanOfOriginRequest',
   filename=None,
   file=DESCRIPTOR,
   containing_type=None,
   create_key=_descriptor._internal_create_key,
   fields=[
     _descriptor.FieldDescriptor(
-      name='name', full_name='mapadroid.mapping_manager.Worker.name', index=0,
-      number=1, type=9, cpp_type=9, label=1,
-      has_default_value=False, default_value=b"".decode('utf-8'),
+      name='worker', full_name='mapadroid.mapping_manager.GetQuestLayerToScanOfOriginRequest.worker', index=0,
+      number=1, type=11, cpp_type=10, label=1,
+      has_default_value=False, default_value=None,
       message_type=None, enum_type=None, containing_type=None,
       is_extension=False, extension_scope=None,
       serialized_options=None, file=DESCRIPTOR,  create_key=_descriptor._internal_create_key),
@@ -52,8 +54,45 @@ _WORKER = _descriptor.Descriptor(
   extension_ranges=[],
   oneofs=[
   ],
-  serialized_start=68,
-  serialized_end=90,
+  serialized_start=89,
+  serialized_end=167,
+)
+
+
+_GETQUESTLAYERTOSCANOFORIGINRESPONSE = _descriptor.Descriptor(
+  name='GetQuestLayerToScanOfOriginResponse',
+  full_name='mapadroid.mapping_manager.GetQuestLayerToScanOfOriginResponse',
+  filename=None,
+  file=DESCRIPTOR,
+  containing_type=None,
+  create_key=_descriptor._internal_create_key,
+  fields=[
+    _descriptor.FieldDescriptor(
+      name='layer', full_name='mapadroid.mapping_manager.GetQuestLayerToScanOfOriginResponse.layer', index=0,
+      number=1, type=5, cpp_type=1, label=1,
+      has_default_value=False, default_value=0,
+      message_type=None, enum_type=None, containing_type=None,
+      is_extension=False, extension_scope=None,
+      serialized_options=None, file=DESCRIPTOR,  create_key=_descriptor._internal_create_key),
+  ],
+  extensions=[
+  ],
+  nested_types=[],
+  enum_types=[
+  ],
+  serialized_options=None,
+  is_extendable=False,
+  syntax='proto3',
+  extension_ranges=[],
+  oneofs=[
+    _descriptor.OneofDescriptor(
+      name='_layer', full_name='mapadroid.mapping_manager.GetQuestLayerToScanOfOriginResponse._layer',
+      index=0, containing_type=None,
+      create_key=_descriptor._internal_create_key,
+    fields=[]),
+  ],
+  serialized_start=169,
+  serialized_end=236,
 )
 
 
@@ -84,8 +123,8 @@ _ISROUTEMANAGEROFORIGINLEVELMODEREQUEST = _descriptor.Descriptor(
   extension_ranges=[],
   oneofs=[
   ],
-  serialized_start=92,
-  serialized_end=183,
+  serialized_start=238,
+  serialized_end=320,
 )
 
 
@@ -116,8 +155,8 @@ _ISROUTEMANAGEROFORIGINLEVELMODERESPONSE = _descriptor.Descriptor(
   extension_ranges=[],
   oneofs=[
   ],
-  serialized_start=185,
-  serialized_end=248,
+  serialized_start=322,
+  serialized_end=385,
 )
 
 
@@ -148,8 +187,8 @@ _GETSAFEITEMSNOTTODELETEREQUEST = _descriptor.Descriptor(
   extension_ranges=[],
   oneofs=[
   ],
-  serialized_start=250,
-  serialized_end=333,
+  serialized_start=387,
+  serialized_end=461,
 )
 
 
@@ -180,8 +219,8 @@ _GETSAFEITEMSNOTTODELETERESPONSE = _descriptor.Descriptor(
   extension_ranges=[],
   oneofs=[
   ],
-  serialized_start=335,
-  serialized_end=386,
+  serialized_start=463,
+  serialized_end=514,
 )
 
 
@@ -205,8 +244,8 @@ _GETALLOWEDAUTHENTICATIONCREDENTIALSREQUEST = _descriptor.Descriptor(
   extension_ranges=[],
   oneofs=[
   ],
-  serialized_start=388,
-  serialized_end=432,
+  serialized_start=516,
+  serialized_end=560,
 )
 
 
@@ -244,8 +283,8 @@ _GETALLOWEDAUTHENTICATIONCREDENTIALSRESPONSE_ALLOWEDCREDENTIALSENTRY = _descript
   extension_ranges=[],
   oneofs=[
   ],
-  serialized_start=607,
-  serialized_end=664,
+  serialized_start=735,
+  serialized_end=792,
 )
 
 _GETALLOWEDAUTHENTICATIONCREDENTIALSRESPONSE = _descriptor.Descriptor(
@@ -275,8 +314,8 @@ _GETALLOWEDAUTHENTICATIONCREDENTIALSRESPONSE = _descriptor.Descriptor(
   extension_ranges=[],
   oneofs=[
   ],
-  serialized_start=435,
-  serialized_end=664,
+  serialized_start=563,
+  serialized_end=792,
 )
 
 
@@ -300,8 +339,8 @@ _GETALLLOADEDORIGINSREQUEST = _descriptor.Descriptor(
   extension_ranges=[],
   oneofs=[
   ],
-  serialized_start=666,
-  serialized_end=694,
+  serialized_start=794,
+  serialized_end=822,
 )
 
 
@@ -332,15 +371,20 @@ _GETALLLOADEDORIGINSRESPONSE = _descriptor.Descriptor(
   extension_ranges=[],
   oneofs=[
   ],
-  serialized_start=696,
-  serialized_end=749,
+  serialized_start=824,
+  serialized_end=877,
 )
 
-_ISROUTEMANAGEROFORIGINLEVELMODEREQUEST.fields_by_name['worker'].message_type = _WORKER
-_GETSAFEITEMSNOTTODELETEREQUEST.fields_by_name['worker'].message_type = _WORKER
+_GETQUESTLAYERTOSCANOFORIGINREQUEST.fields_by_name['worker'].message_type = shared_dot_Worker__pb2._WORKER
+_GETQUESTLAYERTOSCANOFORIGINRESPONSE.oneofs_by_name['_layer'].fields.append(
+  _GETQUESTLAYERTOSCANOFORIGINRESPONSE.fields_by_name['layer'])
+_GETQUESTLAYERTOSCANOFORIGINRESPONSE.fields_by_name['layer'].containing_oneof = _GETQUESTLAYERTOSCANOFORIGINRESPONSE.oneofs_by_name['_layer']
+_ISROUTEMANAGEROFORIGINLEVELMODEREQUEST.fields_by_name['worker'].message_type = shared_dot_Worker__pb2._WORKER
+_GETSAFEITEMSNOTTODELETEREQUEST.fields_by_name['worker'].message_type = shared_dot_Worker__pb2._WORKER
 _GETALLOWEDAUTHENTICATIONCREDENTIALSRESPONSE_ALLOWEDCREDENTIALSENTRY.containing_type = _GETALLOWEDAUTHENTICATIONCREDENTIALSRESPONSE
 _GETALLOWEDAUTHENTICATIONCREDENTIALSRESPONSE.fields_by_name['allowed_credentials'].message_type = _GETALLOWEDAUTHENTICATIONCREDENTIALSRESPONSE_ALLOWEDCREDENTIALSENTRY
-DESCRIPTOR.message_types_by_name['Worker'] = _WORKER
+DESCRIPTOR.message_types_by_name['GetQuestLayerToScanOfOriginRequest'] = _GETQUESTLAYERTOSCANOFORIGINREQUEST
+DESCRIPTOR.message_types_by_name['GetQuestLayerToScanOfOriginResponse'] = _GETQUESTLAYERTOSCANOFORIGINRESPONSE
 DESCRIPTOR.message_types_by_name['IsRoutemanagerOfOriginLevelmodeRequest'] = _ISROUTEMANAGEROFORIGINLEVELMODEREQUEST
 DESCRIPTOR.message_types_by_name['IsRoutemanagerOfOriginLevelmodeResponse'] = _ISROUTEMANAGEROFORIGINLEVELMODERESPONSE
 DESCRIPTOR.message_types_by_name['GetSafeItemsNotToDeleteRequest'] = _GETSAFEITEMSNOTTODELETEREQUEST
@@ -351,12 +395,19 @@ DESCRIPTOR.message_types_by_name['GetAllLoadedOriginsRequest'] = _GETALLLOADEDOR
 DESCRIPTOR.message_types_by_name['GetAllLoadedOriginsResponse'] = _GETALLLOADEDORIGINSRESPONSE
 _sym_db.RegisterFileDescriptor(DESCRIPTOR)
 
-Worker = _reflection.GeneratedProtocolMessageType('Worker', (_message.Message,), {
-  'DESCRIPTOR' : _WORKER,
+GetQuestLayerToScanOfOriginRequest = _reflection.GeneratedProtocolMessageType('GetQuestLayerToScanOfOriginRequest', (_message.Message,), {
+  'DESCRIPTOR' : _GETQUESTLAYERTOSCANOFORIGINREQUEST,
   '__module__' : 'mapping_manager.mapping_manager_pb2'
-  # @@protoc_insertion_point(class_scope:mapadroid.mapping_manager.Worker)
+  # @@protoc_insertion_point(class_scope:mapadroid.mapping_manager.GetQuestLayerToScanOfOriginRequest)
   })
-_sym_db.RegisterMessage(Worker)
+_sym_db.RegisterMessage(GetQuestLayerToScanOfOriginRequest)
+
+GetQuestLayerToScanOfOriginResponse = _reflection.GeneratedProtocolMessageType('GetQuestLayerToScanOfOriginResponse', (_message.Message,), {
+  'DESCRIPTOR' : _GETQUESTLAYERTOSCANOFORIGINRESPONSE,
+  '__module__' : 'mapping_manager.mapping_manager_pb2'
+  # @@protoc_insertion_point(class_scope:mapadroid.mapping_manager.GetQuestLayerToScanOfOriginResponse)
+  })
+_sym_db.RegisterMessage(GetQuestLayerToScanOfOriginResponse)
 
 IsRoutemanagerOfOriginLevelmodeRequest = _reflection.GeneratedProtocolMessageType('IsRoutemanagerOfOriginLevelmodeRequest', (_message.Message,), {
   'DESCRIPTOR' : _ISROUTEMANAGEROFORIGINLEVELMODEREQUEST,
@@ -432,8 +483,8 @@ _MAPPINGMANAGER = _descriptor.ServiceDescriptor(
   index=0,
   serialized_options=None,
   create_key=_descriptor._internal_create_key,
-  serialized_start=752,
-  serialized_end=1404,
+  serialized_start=880,
+  serialized_end=1691,
   methods=[
   _descriptor.MethodDescriptor(
     name='GetAllowedAuthenticationCredentials',
@@ -472,6 +523,16 @@ _MAPPINGMANAGER = _descriptor.ServiceDescriptor(
     containing_service=None,
     input_type=_ISROUTEMANAGEROFORIGINLEVELMODEREQUEST,
     output_type=_ISROUTEMANAGEROFORIGINLEVELMODERESPONSE,
+    serialized_options=None,
+    create_key=_descriptor._internal_create_key,
+  ),
+  _descriptor.MethodDescriptor(
+    name='GetQuestLayerToScanOfOrigin',
+    full_name='mapadroid.mapping_manager.MappingManager.GetQuestLayerToScanOfOrigin',
+    index=4,
+    containing_service=None,
+    input_type=_GETQUESTLAYERTOSCANOFORIGINREQUEST,
+    output_type=_GETQUESTLAYERTOSCANOFORIGINRESPONSE,
     serialized_options=None,
     create_key=_descriptor._internal_create_key,
   ),

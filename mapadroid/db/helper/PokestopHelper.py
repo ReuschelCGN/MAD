@@ -12,6 +12,7 @@ from mapadroid.geofence.geofenceHelper import GeofenceHelper
 from mapadroid.utils.DatetimeWrapper import DatetimeWrapper
 from mapadroid.utils.collections import Location
 from mapadroid.utils.logging import LoggerEnums, get_logger
+from mapadroid.utils.madGlobals import QuestLayer
 
 logger = get_logger(LoggerEnums.database)
 
@@ -37,19 +38,16 @@ class PokestopHelper:
         min_lat, min_lon, max_lat, max_lon = -90, -180, 90, 180
         if geofence_helper:
             min_lat, min_lon, max_lat, max_lon = geofence_helper.get_polygon_from_fence()
+        stmt = select(Pokestop)
+        where_and_clauses = [Pokestop.latitude >= min_lat,
+                             Pokestop.longitude >= min_lon,
+                             Pokestop.latitude <= max_lat,
+                             Pokestop.longitude <= max_lon]
         if fence:
             polygon = "POLYGON(({}))".format(fence)
-            stmt = select(Pokestop).where(and_(Pokestop.latitude >= min_lat,
-                                               Pokestop.longitude >= min_lon,
-                                               Pokestop.latitude <= max_lat,
-                                               Pokestop.longitude <= max_lon,
-                                               func.ST_Contains(func.ST_GeomFromText(polygon),
-                                                                func.POINT(Pokestop.latitude, Pokestop.longitude))))
-        else:
-            stmt = select(Pokestop).where(and_(Pokestop.latitude >= min_lat,
-                                               Pokestop.longitude >= min_lon,
-                                               Pokestop.latitude <= max_lat,
-                                               Pokestop.longitude <= max_lon))
+            where_and_clauses.append(func.ST_Contains(func.ST_GeomFromText(polygon),
+                                                      func.POINT(Pokestop.latitude, Pokestop.longitude)))
+
         result = await session.execute(stmt)
         list_of_coords: List[Location] = []
         for pokestop in result.scalars().all():
@@ -199,7 +197,7 @@ class PokestopHelper:
                               ne_corner: Optional[Location] = None, sw_corner: Optional[Location] = None,
                               old_ne_corner: Optional[Location] = None, old_sw_corner: Optional[Location] = None,
                               timestamp: Optional[int] = None,
-                              fence: Optional[str] = None) -> Dict[int, Tuple[Pokestop, TrsQuest]]:
+                              fence: Optional[str] = None) -> Dict[int, Tuple[Pokestop, Dict[int, TrsQuest]]]:
         """
         quests_from_db
         Args:
@@ -214,6 +212,7 @@ class PokestopHelper:
         Returns:
 
         """
+        # TODO: Check that a stop is returned multiple times
         stmt = select(Pokestop, TrsQuest) \
             .join(TrsQuest, TrsQuest.GUID == Pokestop.pokestop_id, isouter=True)
         where_conditions = []
@@ -221,8 +220,7 @@ class PokestopHelper:
         today_midnight = datetime.today().replace(hour=0, minute=0, second=0, microsecond=0)
         where_conditions.append(TrsQuest.quest_timestamp > today_midnight.timestamp())
 
-        if (ne_corner and sw_corner
-                and ne_corner.lat and ne_corner.lng and sw_corner.lat and sw_corner.lng):
+        if ne_corner and sw_corner and ne_corner.lat and ne_corner.lng and sw_corner.lat and sw_corner.lng:
             where_conditions.append(and_(Pokestop.latitude >= sw_corner.lat,
                                          Pokestop.longitude >= sw_corner.lng,
                                          Pokestop.latitude <= ne_corner.lat,
@@ -242,28 +240,33 @@ class PokestopHelper:
                                                      func.POINT(Pokestop.latitude, Pokestop.longitude)))
         stmt = stmt.where(and_(*where_conditions))
         result = await session.execute(stmt)
-        stop_with_quest: Dict[int, Tuple[Pokestop, TrsQuest]] = {}
+        stop_with_quest: Dict[int, Tuple[Pokestop, Dict[int, TrsQuest]]] = {}
         for (stop, quest) in result.all():
-            stop_with_quest[stop.pokestop_id] = (stop, quest)
+            if stop.pokestop_id not in stop_with_quest:
+                stop_with_quest[stop.pokestop_id] = (stop, {})
+            stop_with_quest[stop.pokestop_id][1][quest.layer] = quest
         return stop_with_quest
 
     @staticmethod
     async def get_without_quests(session: AsyncSession,
-                                 geofence_helper: GeofenceHelper) -> Dict[int, Pokestop]:
+                                 geofence_helper: GeofenceHelper,
+                                 quest_layer: QuestLayer) -> Dict[int, Pokestop]:
         """
         stop_from_db_without_quests
         Args:
+            quest_layer:
             geofence_helper:
             session:
 
         Returns:
 
         """
-        stmt = select(Pokestop) \
-            .join(TrsQuest, TrsQuest.GUID == Pokestop.pokestop_id, isouter=True)
+        stmt = select(Pokestop, TrsQuest) \
+            .join(TrsQuest, and_(TrsQuest.GUID == Pokestop.pokestop_id,
+                                 TrsQuest.layer == quest_layer.value), isouter=True)
         where_conditions = []
         # TODO: Verify this works for all timezones...
-        today_midnight = datetime.today().replace(hour=0, minute=0, second=0, microsecond=0)
+        today_midnight = DatetimeWrapper.now().replace(hour=0, minute=0, second=0, microsecond=0)
         where_conditions.append(or_(TrsQuest.quest_timestamp < today_midnight.timestamp(),
                                     TrsQuest.GUID == None))
 
@@ -276,7 +279,9 @@ class PokestopHelper:
         stmt = stmt.where(and_(*where_conditions))
         result = await session.execute(stmt)
         stops_without_quests: Dict[int, Pokestop] = {}
-        for stop in result.scalars().all():
+        for (stop, quest) in result.all():
+            if quest and (quest.layer != quest_layer.value or quest.quest_timestamp > today_midnight.timestamp()):
+                continue
             if geofence_helper.is_coord_inside_include_geofence(Location(float(stop.latitude), float(stop.longitude))):
                 stops_without_quests[stop.pokestop_id] = stop
         return stops_without_quests

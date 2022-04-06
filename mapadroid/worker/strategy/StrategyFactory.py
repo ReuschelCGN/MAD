@@ -7,20 +7,22 @@ from mapadroid.data_handler.mitm_data.AbstractMitmMapper import AbstractMitmMapp
 from mapadroid.data_handler.stats.AbstractStatsHandler import AbstractStatsHandler
 from mapadroid.db.DbWrapper import DbWrapper
 from mapadroid.db.model import SettingsDevicepool, SettingsDevice, SettingsWalkerarea
+from mapadroid.geofence.geofenceHelper import GeofenceHelper
 from mapadroid.mapping_manager.MappingManager import DeviceMappingsEntry, MappingManager
 from mapadroid.mapping_manager.MappingManagerDevicemappingKey import MappingManagerDevicemappingKey
 from mapadroid.ocr.pogoWindows import PogoWindows
 from mapadroid.ocr.screenPath import WordToScreenMatching
 from mapadroid.utils.collections import Location
-from mapadroid.utils.madGlobals import WrongAreaInWalker
+from mapadroid.utils.madGlobals import WrongAreaInWalker, QuestLayer
 from mapadroid.utils.routeutil import pre_check_value
 from mapadroid.websocket.AbstractCommunicator import AbstractCommunicator
 from mapadroid.worker.WorkerState import WorkerState
 from mapadroid.worker.WorkerType import WorkerType
 from mapadroid.worker.strategy.AbstractWorkerStrategy import AbstractWorkerStrategy
 from mapadroid.worker.strategy.NopStrategy import NopStrategy
-from mapadroid.worker.strategy.QuestStrategy import QuestStrategy
 from mapadroid.worker.strategy.WorkerMitmStrategy import WorkerMitmStrategy
+from mapadroid.worker.strategy.quest.ARQuestLayerStrategy import ARQuestLayerStrategy
+from mapadroid.worker.strategy.quest.NonARQuestLayerStrategy import NonARQuestLayerStrategy
 
 
 class WalkerConfiguration(NamedTuple):
@@ -114,15 +116,28 @@ class StrategyFactory:
                                           mitm_mapper=self.__mitm_mapper,
                                           stats_handler=self.__stats_handler)
         elif worker_type in [WorkerType.STOPS]:
-            strategy = QuestStrategy(area_id=area_id,
-                                     communicator=communicator, mapping_manager=self.__mapping_manager,
-                                     db_wrapper=self.__db_wrapper,
-                                     word_to_screen_matching=word_to_screen_matching,
-                                     pogo_windows_handler=self.__pogo_windows,
-                                     walker=walker_settings,
-                                     worker_state=worker_state,
-                                     mitm_mapper=self.__mitm_mapper,
-                                     stats_handler=self.__stats_handler)
+            layer_to_scan: Optional[int] = await self.__mapping_manager.routemanager_get_quest_layer_to_scan(area_id)
+            quest_layer: QuestLayer = QuestLayer(layer_to_scan)
+            if quest_layer == QuestLayer.AR:
+                strategy = ARQuestLayerStrategy(area_id=area_id,
+                                                communicator=communicator, mapping_manager=self.__mapping_manager,
+                                                db_wrapper=self.__db_wrapper,
+                                                word_to_screen_matching=word_to_screen_matching,
+                                                pogo_windows_handler=self.__pogo_windows,
+                                                walker=walker_settings,
+                                                worker_state=worker_state,
+                                                mitm_mapper=self.__mitm_mapper,
+                                                stats_handler=self.__stats_handler)
+            else:
+                strategy = NonARQuestLayerStrategy(area_id=area_id,
+                                                   communicator=communicator, mapping_manager=self.__mapping_manager,
+                                                   db_wrapper=self.__db_wrapper,
+                                                   word_to_screen_matching=word_to_screen_matching,
+                                                   pogo_windows_handler=self.__pogo_windows,
+                                                   walker=walker_settings,
+                                                   worker_state=worker_state,
+                                                   mitm_mapper=self.__mitm_mapper,
+                                                   stats_handler=self.__stats_handler)
         else:
             logger.error("WorkerFactor::get_worker failed to create a worker...")
         return strategy
@@ -136,7 +151,7 @@ class StrategyFactory:
             return None
 
         if walker_configuration.area_id not in await self.__mapping_manager.get_all_routemanager_ids():
-            raise WrongAreaInWalker()
+            raise WrongAreaInWalker("Wrong area in walker")
 
         logger.info('using walker area {} [{}/{}]',
                     await self.__mapping_manager.routemanager_get_name(walker_configuration.area_id),
@@ -174,32 +189,31 @@ class StrategyFactory:
             logger.warning('No area defined for the current walker')
             return None
 
-        # preckeck walker setting
-        while not pre_check_value(walker_settings, self.__event.get_current_event_id()) \
+        # preckeck walker setting using the geofence_included's first location
+        location = await self.__area_middle_of_fence(walker_settings)
+        loop_exit = False
+        while not pre_check_value(walker_settings, self.__event.get_current_event_id(), location) \
                 and client_mapping.walker_area_index < len(client_mapping.walker_areas):
             logger.info('not using area {} - Walkervalue out of range',
                         await self.__mapping_manager.routemanager_get_name(walker_settings.area_id))
             if client_mapping.walker_area_index >= len(client_mapping.walker_areas) - 1:
-                logger.warning('Cannot find any active area defined for current time. Check Walker entries')
-                client_mapping.walker_area_index = 0
+                await self.__reset_settings(client_mapping, origin)
+                if loop_exit:
+                    logger.warning('Cannot find any active area defined for current time. Check Walker entries')
+                    return None
+                loop_exit = True
+            else:
+                client_mapping.walker_area_index += 1
                 await self.__mapping_manager.set_devicesetting_value_of(origin,
                                                                         MappingManagerDevicemappingKey.WALKER_AREA_INDEX,
                                                                         client_mapping.walker_area_index)
-                return None
-            client_mapping.walker_area_index += 1
-            await self.__mapping_manager.set_devicesetting_value_of(origin,
-                                                                    MappingManagerDevicemappingKey.WALKER_AREA_INDEX,
-                                                                    client_mapping.walker_area_index)
             walker_settings = client_mapping.walker_areas[client_mapping.walker_area_index]
+            location = await self.__area_middle_of_fence(walker_settings)
 
         logger.debug("Checking walker_area_index length")
         if client_mapping.walker_area_index >= len(client_mapping.walker_areas):
             # check if array is smaller than expected - f.e. on the fly changes in mappings.json
-            await self.__mapping_manager.set_devicesetting_value_of(origin,
-                                                                    MappingManagerDevicemappingKey.WALKER_AREA_INDEX, 0)
-            await self.__mapping_manager.set_devicesetting_value_of(origin, MappingManagerDevicemappingKey.FINISHED,
-                                                                    False)
-            client_mapping.walker_area_index = 0
+            await self.__reset_settings(client_mapping, origin)
 
         walker_configuration = WalkerConfiguration(area_id=walker_settings.area_id,
                                                    walker_index=client_mapping.walker_area_index,
@@ -207,6 +221,22 @@ class StrategyFactory:
                                                    total_walkers_allowed_for_assigned_area=len(
                                                        client_mapping.walker_areas))
         return walker_configuration
+
+    async def __reset_settings(self, client_mapping, origin):
+        await self.__mapping_manager.set_devicesetting_value_of(origin,
+                                                                MappingManagerDevicemappingKey.WALKER_AREA_INDEX, 0)
+        await self.__mapping_manager.set_devicesetting_value_of(origin, MappingManagerDevicemappingKey.FINISHED,
+                                                                False)
+        client_mapping.walker_area_index = 0
+
+    async def __area_middle_of_fence(self, walker_settings: SettingsWalkerarea):
+        geofence_helper: Optional[GeofenceHelper] = await self.__mapping_manager.routemanager_get_geofence_helper(
+            walker_settings.area_id)
+        location: Optional[Location] = None
+        if geofence_helper:
+            lat, lng = geofence_helper.get_middle_from_fence()
+            location = Location(lat, lng)
+        return location
 
     async def __update_walker_index(self, origin: str, mapping_entry: DeviceMappingsEntry) -> None:
         if mapping_entry.walker_area_index > 0:

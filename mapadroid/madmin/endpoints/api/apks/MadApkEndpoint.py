@@ -8,12 +8,12 @@ from loguru import logger
 from werkzeug.utils import secure_filename
 
 from mapadroid.db.helper.MadApkAutosearchHelper import MadApkAutosearchHelper
-from mapadroid.utils.apk_enums import APKArch, APKType
-from mapadroid.utils.custom_types import MADapks
 from mapadroid.mad_apk.utils import convert_to_backend, get_apk_status
 from mapadroid.mad_apk.wizard import APKWizard, WizardError, PackageImporter
 from mapadroid.madmin.AbstractMadminRootEndpoint import AbstractMadminRootEndpoint
 from mapadroid.madmin.functions import allowed_file
+from mapadroid.utils.apk_enums import APKArch, APKType
+from mapadroid.utils.custom_types import MADapks
 
 
 class MadApkEndpoint(AbstractMadminRootEndpoint):
@@ -90,7 +90,7 @@ class MadApkEndpoint(AbstractMadminRootEndpoint):
                     await wizard.apk_search(apk_type, apk_arch)
                 except ValueError as e:
                     logger.exception(e)
-                    raise web.HTTPNotFound
+                    raise web.HTTPNotFound()
                 return web.Response(status=204)
             elif call == 'search_download':
                 try:

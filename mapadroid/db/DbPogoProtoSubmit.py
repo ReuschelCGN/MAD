@@ -8,8 +8,9 @@ import sqlalchemy
 from aioredis import Redis
 from bitstring import BitArray
 from loguru import logger
-from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.exc import IntegrityError
+from sqlalchemy.ext.asyncio import AsyncSession
+
 from mapadroid.db.PooledQueryExecutor import PooledQueryExecutor
 from mapadroid.db.helper.GymDetailHelper import GymDetailHelper
 from mapadroid.db.helper.GymHelper import GymHelper
@@ -29,7 +30,7 @@ from mapadroid.db.model import (Gym, GymDetail, Pokemon, Pokestop, Raid,
 from mapadroid.utils.DatetimeWrapper import DatetimeWrapper
 from mapadroid.utils.gamemechanicutil import (gen_despawn_timestamp,
                                               is_mon_ditto)
-from mapadroid.utils.madGlobals import MonSeenTypes
+from mapadroid.utils.madGlobals import MonSeenTypes, QuestLayer
 from mapadroid.utils.questGen import QuestGen
 from mapadroid.utils.s2Helper import S2Helper
 
@@ -238,6 +239,7 @@ class DbPogoProtoSubmit:
         """
         wild_pokemon = encounter_proto.get("wild_pokemon", None)
         if wild_pokemon is None or wild_pokemon.get("encounter_id", 0) == 0 or not str(wild_pokemon["spawnpoint_id"]):
+            logger.warning("Encounter proto of no use (status: {}).", encounter_proto.get('status', None))
             return None
 
         encounter_id = wild_pokemon["encounter_id"]
@@ -571,7 +573,8 @@ class DbPogoProtoSubmit:
                         spawn.earliest_unseen = earliest_unseen
                         spawn.spawndef = newspawndef
                         spawn.eventid = current_event.id if current_event else 1
-                    spawn.last_scanned = DatetimeWrapper.now()
+                        spawn.first_detection = DatetimeWrapper.fromtimestamp(received_timestamp)
+                    spawn.last_scanned = DatetimeWrapper.fromtimestamp(received_timestamp)
                     spawn.calc_endminsec = calcendtime
                 else:
                     # TODO: Reduce "complexity..."
@@ -634,10 +637,12 @@ class DbPogoProtoSubmit:
                     await nested_transaction.rollback()
         return stop is not None
 
-    async def quest(self, session: AsyncSession, quest_proto: dict, quest_gen: QuestGen) -> bool:
+    async def quest(self, session: AsyncSession, quest_proto: dict, quest_gen: QuestGen,
+                    quest_layer: QuestLayer) -> bool:
         """
 
         Args:
+            quest_layer: the quest layer being scanned
             session:
             quest_proto:
             quest_gen:
@@ -686,10 +691,11 @@ class DbPogoProtoSubmit:
         json_condition = json.dumps(condition)
         task = await quest_gen.questtask(int(quest_type), json_condition, int(target), str(quest_template),
                                          quest_title_resource_id)
-        quest: Optional[TrsQuest] = await TrsQuestHelper.get(session, fort_id)
+        quest: Optional[TrsQuest] = await TrsQuestHelper.get(session, fort_id, quest_layer)
         if not quest:
             quest = TrsQuest()
             quest.GUID = fort_id
+            quest.layer = quest_layer.value
         quest.quest_type = quest_type
         quest.quest_timestamp = int(time.time())
         quest.quest_stardust = stardust
@@ -728,21 +734,25 @@ class DbPogoProtoSubmit:
         for cell in cells:
             for gym in cell["forts"]:
                 if gym["type"] == 0:
-                    guard_pokemon_id = gym["gym_details"]["guard_pokemon"]
                     gymid = gym["id"]
-                    team_id = gym["gym_details"]["owned_by_team"]
-                    latitude = gym["latitude"]
-                    longitude = gym["longitude"]
-                    slots_available = gym["gym_details"]["slots_available"]
                     last_modified_ts = gym["last_modified_timestamp_ms"] / 1000
                     last_modified = DatetimeWrapper.fromtimestamp(
                         last_modified_ts)
-                    is_ex_raid_eligible = gym["gym_details"]["is_ex_raid_eligible"]
-                    is_ar_scan_eligible = gym["is_ar_scan_eligible"]
+                    latitude = gym["latitude"]
+                    longitude = gym["longitude"]
+                    s2_cell_id = S2Helper.lat_lng_to_cell_id(latitude, longitude)
+                    weather: Optional[Weather] = await WeatherHelper.get(session, s2_cell_id)
 
-                    cache_key = "gym{}{}".format(gymid, last_modified_ts)
+                    cache_key = "gym{}{}{}".format(gymid, last_modified_ts, weather)
                     if await self._cache.exists(cache_key):
                         continue
+                    guard_pokemon_id = gym["gym_details"]["guard_pokemon"]
+                    team_id = gym["gym_details"]["owned_by_team"]
+                    slots_available = gym["gym_details"]["slots_available"]
+                    is_ex_raid_eligible = gym["gym_details"]["is_ex_raid_eligible"]
+                    is_ar_scan_eligible = gym["is_ar_scan_eligible"]
+                    is_in_battle = gym['gym_details']['is_in_battle']
+                    is_enabled = gym.get('enabled', 1)
 
                     gym_obj: Optional[Gym] = await GymHelper.get(session, gymid)
                     if not gym_obj:
@@ -751,15 +761,16 @@ class DbPogoProtoSubmit:
                     gym_obj.team_id = team_id
                     gym_obj.guard_pokemon_id = guard_pokemon_id
                     gym_obj.slots_available = slots_available
-                    gym_obj.enabled = 1  # TODO: read in proto?
+                    gym_obj.enabled = is_enabled
                     gym_obj.latitude = latitude
                     gym_obj.longitude = longitude
-                    gym_obj.total_cp = 0  # TODO: Read from proto..
-                    gym_obj.is_in_battle = 0
+                    gym_obj.total_cp = 0  # TODO: Read from proto?
+                    gym_obj.is_in_battle = is_in_battle
                     gym_obj.last_modified = last_modified
                     gym_obj.last_scanned = time_receiver
                     gym_obj.is_ex_raid_eligible = is_ex_raid_eligible
                     gym_obj.is_ar_scan_eligible = is_ar_scan_eligible
+                    gym_obj.weather_boosted_condition = weather.gameplay_weather if weather else 0
 
                     gym_detail: Optional[GymDetail] = await GymDetailHelper.get(session, gymid)
                     if not gym_detail:
@@ -1141,7 +1152,8 @@ class DbPogoProtoSubmit:
     def get_time_ms(self):
         return int(time.time() * 1000)
 
-    async def maybe_save_ditto(self, session: AsyncSession, display: Dict, encounter_id: int, mon_id: int, pokemon_data: Dict):
+    async def maybe_save_ditto(self, session: AsyncSession, display: Dict, encounter_id: int, mon_id: int,
+                               pokemon_data: Dict):
         if mon_id == 132:
             # Save ditto disguise
             await PokemonDisplayHelper.insert_ignore(session, encounter_id,

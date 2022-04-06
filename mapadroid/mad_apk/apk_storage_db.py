@@ -1,17 +1,17 @@
 from io import BytesIO
-from typing import Optional
+from typing import Optional, AsyncGenerator, List, Union
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from mapadroid.utils import global_variables
+from mapadroid.utils.apk_enums import APKArch, APKType
+from mapadroid.utils.custom_types import MADPackages, MADPackage
 from mapadroid.utils.logging import LoggerEnums, get_logger
 from .abstract_apk_storage import AbstractAPKStorage
-from mapadroid.utils.apk_enums import APKArch, APKType
-from mapadroid.utils.custom_types import MADPackages
 from .utils import generate_filename
 from ..db.DbWrapper import DbWrapper
 from ..db.helper.FilestoreChunkHelper import FilestoreChunkHelper
-from ..db.helper.FilestoreMetaHelper import FilestoreMetaHelper
 from ..db.helper.MadApkHelper import MadApkHelper
-from ..db.model import FilestoreMeta
+from ..db.model import MadApk
 
 logger = get_logger(LoggerEnums.storage)
 
@@ -26,6 +26,28 @@ class APKStorageDatabase(AbstractAPKStorage):
     Attributes:
         db_wrapper: Database wrapper
     """
+
+    async def get_async_generator(self, session: AsyncSession,
+                                  package_info: Union[MADPackage, MADPackages],
+                                  package: APKType,
+                                  architecture: APKArch) -> AsyncGenerator:
+        """ Create a generator for retrieving the stored package from the database
+
+        Args:
+            package_info:
+            session:
+            package (APKType): Package to save
+            architecture (APKArch): Architecture of the package to save
+        Returns:
+            Generator for retrieving the package
+        """
+        filestore_id: Optional[int] = await MadApkHelper.get_filestore_id(session, package, architecture)
+        if not filestore_id:
+            raise ValueError("Package appears to not be present in the database")
+        chunk_ids: List[int] = await FilestoreChunkHelper.get_chunk_ids(session, filestore_id)
+        if not chunk_ids:
+            raise ValueError("Could not locate chunks in DB, something is broken.")
+        return FilestoreChunkHelper.get_chunk_data_generator(session, chunk_ids)
 
     def __init__(self, db_wrapper: DbWrapper, token: Optional[str]):
         super().__init__(token)
@@ -98,21 +120,21 @@ class APKStorageDatabase(AbstractAPKStorage):
                 file_length: int = data.getbuffer().nbytes
                 filename: str = generate_filename(package, architecture, version, mimetype)
 
-                filestore_meta: FilestoreMeta = await FilestoreMetaHelper.insert(session, filename,
-                                                                                 file_length, mimetype)
-                new_id: int = filestore_meta.filestore_id
-
-                await MadApkHelper.insert_or_update(session, new_id, package, architecture, version)
+                mad_apk: MadApk = await MadApkHelper.insert(session, package, architecture, version,
+                                                            filename,
+                                                            file_length, mimetype
+                                                            )
                 logger.info('Starting upload of APK')
                 chunk_size = global_variables.CHUNK_MAX_SIZE
                 for chunked_data in [data.getbuffer()[i * chunk_size:(i + 1) * chunk_size] for i in
                                      range((len(data.getbuffer()) + chunk_size - 1) // chunk_size)]:
-                    await FilestoreChunkHelper.insert(session, new_id, len(chunked_data), chunked_data.tobytes())
+                    await FilestoreChunkHelper.insert(session, mad_apk.filestore_id, len(chunked_data),
+                                                      chunked_data.tobytes())
                 logger.info('Finished upload of APK')
                 await session.commit()
                 return True
             except Exception as e:  # noqa: E722 B001
-                logger.warning("Unable to save/upload apk: {}", e)
+                logger.warning("Unable to save/upload apk: {}", e, exc_info=True)
             return False
 
     async def shutdown(self) -> None:

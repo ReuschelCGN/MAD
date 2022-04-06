@@ -1,14 +1,16 @@
 import asyncio
-import json
 import time
-from concurrent.futures import ThreadPoolExecutor
+from typing import Optional, List, Dict
 
-import ujson
 from aiohttp import web
 from loguru import logger
 from orjson import orjson
 
+from mapadroid.db.helper.SettingsDeviceHelper import SettingsDeviceHelper
+from mapadroid.db.helper.TrsStatusHelper import TrsStatusHelper
+from mapadroid.db.model import SettingsDevice
 from mapadroid.mitm_receiver.endpoints.AbstractMitmReceiverRootEndpoint import AbstractMitmReceiverRootEndpoint
+from mapadroid.utils.ProtoIdentifier import ProtoIdentifier
 from mapadroid.utils.collections import Location
 
 
@@ -69,15 +71,52 @@ class ReceiveProtosEndpoint(AbstractMitmReceiverRootEndpoint):
         elif proto_type == 106 and not data["payload"].get("cells", []):
             logger.debug("Ignoring apparently empty GMO")
             return
+        elif proto_type == 102 and not data["payload"].get("status", None) == 1:
+            logger.warning("Encounter with status {} being ignored", data["payload"].get("status", None))
+            return
 
         location_of_data: Location = Location(data.get("lat", 0.0), data.get("lng", 0.0))
         if (location_of_data.lat > 90 or location_of_data.lat < -90 or
                 location_of_data.lng > 180 or location_of_data.lng < -180):
             location_of_data: Location = Location(0.0, 0.0)
         time_received: int = int(time.time())
+
+        if proto_type == ProtoIdentifier.FORT_SEARCH.value:
+            logger.debug("Checking fort search proto type 101")
+            await self._handle_fort_search_proto(origin, data["payload"], location_of_data, timestamp)
+        quests_held: Optional[List[int]] = data.get("quests_held", None)
+        await self._get_mitm_mapper().set_quests_held(origin, quests_held)
         await self._get_mitm_mapper().update_latest(origin, timestamp_received_raw=timestamp,
                                                     timestamp_received_receiver=time_received, key=str(proto_type),
                                                     value=data["payload"],
                                                     location=location_of_data)
         logger.debug2("Placing data received to data_queue")
         await self._add_to_queue((timestamp, data, origin))
+
+    async def _handle_fort_search_proto(self, origin: str, quest_proto: Dict, location_of_data: Location,
+                                        timestamp: int) -> None:
+        instance_id = self._get_db_wrapper().get_instance_id()
+        logger.debug("Checking fort search of {} of instance {}", origin, instance_id)
+        device: Optional[SettingsDevice] = await SettingsDeviceHelper.get_by_origin(self._session,
+                                                                                    self._get_db_wrapper().get_instance_id(),
+                                                                                    origin)
+
+        if device:
+            fort_id = quest_proto.get("fort_id", None)
+            if fort_id is None:
+                logger.debug("No fort id in fort search")
+                return
+            if "challenge_quest" not in quest_proto:
+                logger.debug("No challenge quest in fort search")
+                return
+            protoquest = quest_proto["challenge_quest"]["quest"]
+            rewards = protoquest.get("quest_rewards", None)
+            if not rewards:
+                logger.debug("No quest rewards in fort search")
+                return
+            await TrsStatusHelper.set_last_softban_action(self._session,
+                                                          self._get_db_wrapper().get_instance_id(),
+                                                          device.device_id, location_of_data, timestamp)
+            self._commit_trigger = True
+        else:
+            logger.debug("Device not found")

@@ -43,14 +43,15 @@ class AreaPokestops:
                     "uri_source": "api_routecalc"
                 }
             },
-            "init": {
+            "layer": {
                 "settings": {
                     "type": "option",
                     "require": True,
-                    "values": [False, True],
-                    "empty": False,
-                    "description": "Set this option to True, if you scan the area for stops for the first time",
-                    "expected": bool
+                    "values": [1, 0],
+                    "description": "The quest layer that is to be scanned. Default: 1 (when AR quest is being held onto)."
+                                   "0: AR layer",
+                    "expected": int,
+                    "data_source": "layer",
                 }
             },
             "level": {
@@ -59,6 +60,16 @@ class AreaPokestops:
                     "require": False,
                     "values": [False, True],
                     "description": "Level up an account mode.  (Default: False)",
+                    "expected": bool
+                }
+            },
+            "enable_clustering": {
+                "settings": {
+                    "type": "option",
+                    "require": False,
+                    "values": [False, True],
+                    "description": "Enable clustering for stops (only respected if level is set to True). "
+                                   "(Default: False)",
                     "expected": bool
                 }
             },

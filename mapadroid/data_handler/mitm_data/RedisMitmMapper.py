@@ -3,13 +3,14 @@ from typing import Optional, List, Dict, Union
 
 import ujson
 from aioredis import Redis
+from loguru import logger
+from aiocache import cached
 
 from mapadroid.data_handler.mitm_data.AbstractMitmMapper import AbstractMitmMapper
 from mapadroid.data_handler.mitm_data.holder.latest_mitm_data.LatestMitmDataEntry import LatestMitmDataEntry
 from mapadroid.db.DbWrapper import DbWrapper
 from mapadroid.utils.ProtoIdentifier import ProtoIdentifier
 from mapadroid.utils.collections import Location
-from loguru import logger
 
 
 class RedisMitmMapper(AbstractMitmMapper):
@@ -26,6 +27,8 @@ class RedisMitmMapper(AbstractMitmMapper):
     POKESTOPS_VISITED_KEY = "pokestops_visited:{}"
     # level:{worker}
     LEVEL_KEY = "level:{}"
+    # quests_held:{worker}
+    QUESTS_HELD_KEY = "quests_held:{}"
 
     def __init__(self, db_wrapper: DbWrapper):
         self.__db_wrapper: DbWrapper = db_wrapper
@@ -65,7 +68,8 @@ class RedisMitmMapper(AbstractMitmMapper):
             await self.__parse_gmo_for_location(worker, value, timestamp_received_raw, location)
             await self.__cache.set(RedisMitmMapper.IS_INJECTED_KEY.format(worker), 1)
 
-    async def __parse_gmo_for_location(self, worker: str, gmo_payload: Dict, timestamp: int, location: Optional[Location]):
+    async def __parse_gmo_for_location(self, worker: str, gmo_payload: Dict, timestamp: int,
+                                       location: Optional[Location]):
         cells = gmo_payload.get("cells", None)
         if not cells:
             return
@@ -96,6 +100,7 @@ class RedisMitmMapper(AbstractMitmMapper):
         pokestops_visited: Optional[int] = await self.__cache.get(RedisMitmMapper.POKESTOPS_VISITED_KEY.format(worker))
         return int(pokestops_visited) if pokestops_visited else 0
 
+    @cached(ttl=30)
     async def get_level(self, worker: str) -> int:
         level: Optional[int] = await self.__cache.get(RedisMitmMapper.LEVEL_KEY.format(worker))
         return int(level) if level else 0
@@ -118,8 +123,21 @@ class RedisMitmMapper(AbstractMitmMapper):
             return None
         return last_known_location
 
+    @cached(ttl=30)
     async def set_level(self, worker: str, level: int) -> None:
         await self.__cache.set(RedisMitmMapper.LEVEL_KEY.format(worker), level)
 
     async def set_pokestop_visits(self, worker: str, pokestop_visits: int) -> None:
         await self.__cache.set(RedisMitmMapper.POKESTOPS_VISITED_KEY.format(worker), pokestop_visits)
+
+    @cached(ttl=30)
+    async def set_quests_held(self, worker: str, quests_held: Optional[List[int]]) -> None:
+        await self.__cache.set(RedisMitmMapper.QUESTS_HELD_KEY.format(worker), ujson.dumps(quests_held))
+
+    @cached(ttl=10)
+    async def get_quests_held(self, worker: str) -> Optional[List[int]]:
+        value = await self.__cache.get(RedisMitmMapper.QUESTS_HELD_KEY.format(worker))
+        if not value:
+            return None
+        else:
+            return ujson.loads(value)

@@ -1,7 +1,10 @@
+from __future__ import annotations
+
 import asyncio
 import json
 import socket
 from abc import ABC
+from functools import wraps
 from typing import Any, Optional, Dict, Union, Tuple
 
 from aiohttp import web
@@ -16,13 +19,33 @@ from mapadroid.db.DbWrapper import DbWrapper
 from mapadroid.db.helper.AutoconfigRegistrationHelper import AutoconfigRegistrationHelper
 from mapadroid.db.model import Base, AutoconfigRegistration, AutoconfigLog
 from mapadroid.mad_apk.abstract_apk_storage import AbstractAPKStorage
-from mapadroid.utils.apk_enums import APKArch, APKType, APKPackage
 from mapadroid.mad_apk.utils import convert_to_backend
 from mapadroid.madmin import apiException
 from mapadroid.mapping_manager.MappingManager import MappingManager
+from mapadroid.utils.apk_enums import APKArch, APKType, APKPackage
 from mapadroid.utils.authHelper import check_auth
 from mapadroid.utils.json_encoder import MADEncoder
 from mapadroid.utils.updater import DeviceUpdater
+
+
+def validate_accepted(func) -> Any:
+    @wraps(func)
+    async def decorated(self: AbstractMitmReceiverRootEndpoint, *args, **kwargs):
+        try:
+            session_id: int = self.request.match_info.get('session_id')
+            session_id = int(session_id)
+            autoconfig_registration: Optional[AutoconfigRegistration] = await AutoconfigRegistrationHelper \
+                .get_by_session_id(self._session, self._get_instance_id(), session_id)
+
+            if not autoconfig_registration:
+                raise web.HTTPNotFound()
+            elif autoconfig_registration.status == 0:
+                raise web.HTTPNotAcceptable()
+            return await func(self, *args, **kwargs)
+        except (TypeError, ValueError):
+            raise web.HTTPNotFound()
+
+    return decorated
 
 
 class AbstractMitmReceiverRootEndpoint(web.View, ABC):
@@ -61,12 +84,17 @@ class AbstractMitmReceiverRootEndpoint(web.View, ABC):
                 await session.rollback()
         except web.HTTPFound as e:
             raise e
+        except web.HTTPException as e:
+            logger.warning("HTTP Exception occurred in request! Details: " + str(e))
+            raise e
+        # except (ConnectionResetError, ConnectionError) as e:
+        #    raise web.HTTPInternalServerError()
         except Exception as e:
-            logger.warning("Exception occurred in request!. Details: " + str(e))
             logger.exception(e)
+            logger.warning("Exception occurred in request! Details: " + str(e))
+            logger.debug3("Potential uncaught exception in MITMReceiver.", exc_info=True)
             await session.rollback()
-            # TODO: Get previous URL...
-            raise web.HTTPFound("/")
+            raise web.HTTPInternalServerError()
         return response
 
     def _save(self, instance: Base):
@@ -190,20 +218,26 @@ class AbstractMitmReceiverRootEndpoint(web.View, ABC):
         package, architecture = convert_to_backend(apk_type_o, apk_arch_o)
         if apk_type_o is not None and package is None:
             resp_msg = 'Invalid Type.  Valid types are {}'.format([e.name for e in APKPackage])
-            return web.Response(status=404, body=resp_msg)
+            raise web.HTTPNotFound(body=resp_msg)
         if architecture is None and apk_arch_o is not None:
             resp_msg = 'Invalid Architecture.  Valid types are {}'.format([e.name for e in APKArch])
-            return web.Response(status=404, body=resp_msg)
+            raise web.HTTPNotFound(body=resp_msg)
         return package, architecture
 
     async def autoconfig_log(self, **kwargs) -> None:
-        session_id: Optional[int] = kwargs.get('session_id', None)
+        session_id: int = self.request.match_info.get('session_id')
+        if not session_id:
+            session_id = kwargs.get("session_id")
         try:
             level = kwargs['level']
             msg = kwargs['msg']
         except KeyError:
             level, msg = str(await self.request.read(), 'utf-8').split(',', 1)
-
+        autoconf: Optional[AutoconfigRegistration] = await AutoconfigRegistrationHelper\
+            .get_by_session_id(self._session, self._get_instance_id(), session_id)
+        if not autoconf:
+            logger.warning("Autoconf registration session {} not present", session_id)
+            raise web.HTTPNotFound
         autoconfig_log: AutoconfigLog = AutoconfigLog()
         autoconfig_log.session_id = session_id
         autoconfig_log.instance_id = self._get_instance_id()
@@ -214,23 +248,14 @@ class AbstractMitmReceiverRootEndpoint(web.View, ABC):
             autoconfig_log.level = 0
             logger.warning('Unable to parse level for autoconfig log')
         self._save(autoconfig_log)
-        autoconf: Optional[AutoconfigRegistration] = await AutoconfigRegistrationHelper \
-            .get_by_session_id(self._session, self._get_instance_id(), session_id)
         if int(level) == 4 and autoconf is not None and autoconf.status == 1:
             autoconf.status = 3
             self._save(autoconf)
         # TODO Commit?
 
+    @validate_accepted
     async def autoconfig_status(self) -> web.Response:
-        body = await self.request.json()
-        session_id: Optional[int] = body.get('session_id', None)
-        update_data = {
-            'ip': self._get_request_address()
-        }
-        where = {
-            'session_id': session_id,
-            'instance_id': self._get_instance_id()
-        }
+        session_id: int = self.request.match_info.get('session_id')
         await AutoconfigRegistrationHelper.update_ip(self._session, self._get_instance_id(), session_id,
                                                      self._get_request_address())
         return web.Response(text="", status=200)
@@ -254,7 +279,7 @@ class AbstractMitmReceiverRootEndpoint(web.View, ABC):
         auth = self.request.headers.get('Authorization')
         if self._get_mad_args().mitm_status_password != "" and \
                 (not auth or auth != self._get_mad_args().mitm_status_password):
-            raise web.HTTPUnauthorized
+            raise web.HTTPUnauthorized()
 
     async def _check_mitm_device_auth(self):
         """
@@ -266,7 +291,7 @@ class AbstractMitmReceiverRootEndpoint(web.View, ABC):
         auths_allowed: Optional[Dict[str, str]] = await self._get_mapping_manager().get_auths()
         if not check_auth(logger, auth, self._get_mad_args(), auths_allowed):
             logger.warning("Unauthorized attempt to connect from {}", self._get_request_address())
-            raise web.HTTPUnauthorized
+            raise web.HTTPUnauthorized()
 
     async def _check_origin_header(self):
         """
@@ -277,7 +302,7 @@ class AbstractMitmReceiverRootEndpoint(web.View, ABC):
         origin = self._request.headers.get('Origin')
         if origin is None:
             logger.warning("Missing Origin header in request")
-            raise web.HTTPUnauthorized
+            raise web.HTTPUnauthorized()
         elif origin not in (await self._get_mapping_manager().get_all_loaded_origins()):
             logger.warning("MITMReceiver request without Origin or disallowed Origin")
-            raise web.HTTPUnauthorized
+            raise web.HTTPUnauthorized()

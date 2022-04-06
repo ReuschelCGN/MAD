@@ -76,10 +76,11 @@ class DbWebhookReader:
         return ret
 
     @staticmethod
-    async def get_quests_changed_since(session: AsyncSession, _timestamp: int) -> Dict[int, Tuple[Pokestop, TrsQuest]]:
+    async def get_quests_changed_since(session: AsyncSession, _timestamp: int) -> Dict[int, Tuple[Pokestop,
+                                                                                                  Dict[int, TrsQuest]]]:
         logger.debug2("DbWebhookReader::get_quests_changed_since called")
-        quests_with_changes: Dict[int, Tuple[Pokestop, TrsQuest]] = await PokestopHelper.get_with_quests(session,
-                                                                                                         timestamp=_timestamp)
+        quests_with_changes: Dict[int, Tuple[Pokestop, Dict[int, TrsQuest]]] = await PokestopHelper.get_with_quests(
+            session, timestamp=_timestamp)
         return quests_with_changes
 
     @staticmethod
@@ -137,7 +138,8 @@ class DbWebhookReader:
                                     mon_types: Optional[Set[MonSeenTypes]] = None):
         logger.debug2("DbWebhookReader::get_mon_changed_since called")
         mons_with_changes: List[
-            Tuple[Pokemon, TrsSpawn, Optional[Pokestop], Optional[PokemonDisplay]]] = await PokemonHelper.get_changed_since(
+            Tuple[Pokemon, TrsSpawn, Optional[Pokestop], Optional[
+                PokemonDisplay]]] = await PokemonHelper.get_changed_since(
             session,
             _timestamp,
             mon_types)

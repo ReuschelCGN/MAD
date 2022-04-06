@@ -16,15 +16,16 @@ from apkutils.apkfile import BadZipFile, LargeZipFile
 from loguru import logger
 
 from mapadroid.utils import global_variables
+from mapadroid.utils.apk_enums import APKArch, APKPackage, APKType
 from mapadroid.utils.functions import get_version_codes
 from .abstract_apk_storage import AbstractAPKStorage
-from mapadroid.utils.apk_enums import APKArch, APKPackage, APKType
 from .utils import (get_apk_info, lookup_arch_enum,
                     lookup_package_info, supported_pogo_version)
 from ..db.DbWrapper import DbWrapper
 from ..db.helper.MadApkAutosearchHelper import MadApkAutosearchHelper
 from ..db.model import MadApkAutosearch
 from ..utils.RestHelper import RestHelper
+from ..utils.madGlobals import NoMaddevApiTokenError
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 APK_HEADERS = {
@@ -143,7 +144,7 @@ class APKWizard(object):
                 "The MADdev API token (maddev_api_token) has not been configured in config.ini."
                 " Please configure this to use the wizard for downloading PokemonGo."
             )
-            return None
+            raise NoMaddevApiTokenError()
         try:
             latest_pogo_info = await self.find_latest_pogo(architecture)
         except SearchError:
@@ -312,7 +313,7 @@ class APKWizard(object):
         except (ClientError, ValueError) as e:
             logger.warning("Request to {} failed: {}", url, e)
 
-        if not curr_info or (installed_size and installed_size != mirror_size):
+        if not curr_info or not installed_size or (installed_size and installed_size != mirror_size):
             logger.info('Newer version found on the mirror of size {}{}', mirror_size, curr_info_logstring)
             update_available = True
         else:
@@ -558,7 +559,7 @@ async def get_available_versions() -> Dict[str, PackageBase]:
             "Unable to query APKMirror. There is probably a recaptcha that needs to be solved and that "
             "functionality is not currently implemented. Please manually download and upload to the wizard"
         )
-        raise SearchError
+        raise SearchError("Unable to query APKMirror")
     else:
         logger.info("Successfully queried APKMirror to get the latest releases")
         return available

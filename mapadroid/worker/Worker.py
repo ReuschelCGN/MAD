@@ -9,6 +9,7 @@ from loguru import logger
 from mapadroid.db.DbWrapper import DbWrapper
 from mapadroid.db.helper.ScannedLocationHelper import ScannedLocationHelper
 from mapadroid.db.helper.TrsStatusHelper import TrsStatusHelper
+from mapadroid.geofence.geofenceHelper import GeofenceHelper
 from mapadroid.mapping_manager import MappingManager
 from mapadroid.mapping_manager.MappingManagerDevicemappingKey import MappingManagerDevicemappingKey
 from mapadroid.utils.collections import Location
@@ -48,7 +49,11 @@ class Worker(AbstractWorker):
         self._work_mutex: asyncio.Lock = asyncio.Lock()
 
     async def _scan_strategy_changed(self):
-        self._worker_state.stop_worker_event.set()
+        async with self._work_mutex:
+            if self._scan_task:
+                self._scan_task.cancel()
+
+    async def cancel_scan(self) -> None:
         async with self._work_mutex:
             if self._scan_task:
                 self._scan_task.cancel()
@@ -62,8 +67,7 @@ class Worker(AbstractWorker):
             value = await self._mapping_manager.get_devicesetting_value_of_device(self._worker_state.origin, key)
         except (EOFError, FileNotFoundError) as e:
             logger.warning("Failed fetching devicemappings with description: {}. Stopping worker", e)
-            self._worker_state.stop_worker_event.set()
-            return None
+            raise InternalStopWorkerException("Failed fetching devicemappings")
         return value if value is not None else default_value
 
     async def check_max_walkers_reached(self):
@@ -89,7 +93,7 @@ class Worker(AbstractWorker):
                 logger.warning("Task has not been removed before and is still running.")
                 return self._worker_task
             else:
-
+                logger.info("Starting worker task")
                 loop = asyncio.get_running_loop()
                 self._worker_task = loop.create_task(self._run())
                 return self._worker_task
@@ -121,11 +125,8 @@ class Worker(AbstractWorker):
             if self._worker_task:
                 self._worker_task.cancel()
         await self._scan_strategy.worker_specific_setup_stop()
-        await self._internal_cleanup()
 
     async def _cleanup_current(self):
-        # set the event just to make sure - in case of exceptions for example
-        self._worker_state.stop_worker_event.set()
         try:
             await self._mapping_manager.unregister_worker_from_routemanager(self._scan_strategy.area_id,
                                                                             self._worker_state.origin)
@@ -133,48 +134,44 @@ class Worker(AbstractWorker):
             logger.warning("Failed unregistering from routemanager, routemanager may have stopped running already."
                            "Exception: {}", e)
 
-    async def _internal_cleanup(self):
-        if self._scan_strategy:
-            await self._scan_strategy.get_communicator().cleanup()
-
-    # TODO: Fix worker_task and scan_task cleanup to catch racing
-
     async def _run(self) -> None:
-        # TODO: when to break?
         try:
             loop = asyncio.get_running_loop()
+            self._worker_state.stop_worker_event.clear()
             while True:
-                self._worker_state.stop_worker_event.clear()
                 logger.info("Starting scan strategy...")
+                while not self.get_communicator() or not await self.get_communicator().is_alive():
+                    logger.debug2("No active connection present...")
+                    await asyncio.sleep(1)
                 async with self._work_mutex:
                     await self._start_of_new_strategy()
                     self._scan_task = loop.create_task(self._run_scan())
-                # TODO: Try/except CancelledError?
                 try:
                     await self._scan_task
-                    async with self._work_mutex:
-                        self._scan_task = None
-                    await asyncio.sleep(5)
-                    await self.__update_strategy()
                 except CancelledError as e:
                     logger.warning("Scan task was cancelled externally, assuming the strategy was changed (for now...)")
-                    # TODO: If the strategy was changed externally, we do not want to update it, all other cases should
+                    # If the strategy was changed externally, we do not want to update it, all other cases should
                     #  be handled accordingly
-        except (CancelledError, InternalStopWorkerException,
-                WebsocketWorkerTimeoutException) as e:
-            # TODO: in case of WebsocketWorkerConnectionClosedException, wait for new connection rather than stopping
-            logger.info("Worker is stopping")
-            await self._internal_cleanup()
-        except (WebsocketWorkerRemovedException,
-                WebsocketWorkerConnectionClosedException) as e:
-            logger.info("Connection to device closed")
+                except (InternalStopWorkerException, WebsocketWorkerTimeoutException,
+                        WebsocketWorkerConnectionClosedException) as e:
+                    logger.info("Websocket connectivity issues or stop was issued internally")
+                finally:
+                    await asyncio.sleep(5)
+                    async with self._work_mutex:
+                        self._scan_task = None
+                    await self.__update_strategy()
+        except (CancelledError,
+                asyncio.exceptions.TimeoutError,
+                WebsocketWorkerRemovedException) as e:
+            logger.info("Worker task cancelled or websocket worker removed")
         except Exception as e:
             logger.exception(e)
         finally:
+            logger.info("Stopping worker task")
             async with self._work_mutex:
                 if self._scan_task:
                     self._scan_task.cancel()
-                self._worker_task = None
+                    await self._scan_strategy.worker_specific_setup_stop()
                 self._scan_task = None
 
     async def _run_scan(self):
@@ -208,9 +205,9 @@ class Worker(AbstractWorker):
 
                 last_location: Location = await self.get_devicesettings_value(
                     MappingManagerDevicemappingKey.LAST_LOCATION, Location(0.0, 0.0))
-                logger.debug2('LastLat: {}, LastLng: {}, CurLat: {}, CurLng: {}',
-                              last_location.lat, last_location.lng,
-                              self._worker_state.current_location.lat, self._worker_state.current_location.lng)
+                logger.debug2('Last location: {}, Current location: {}',
+                              last_location,
+                              self._worker_state.current_location)
                 time_snapshot, process_location = await self._scan_strategy.move_to_location()
 
                 if process_location:
@@ -228,8 +225,9 @@ class Worker(AbstractWorker):
                     logger.info("Worker finished iteration, continuing work")
             await self._cleanup_current()
 
-    async def __get_current_strategy_to_use(self) -> Optional[AbstractWorkerStrategy]:
-        await self.set_devicesettings_value(MappingManagerDevicemappingKey.FINISHED, True)
+    async def __get_current_strategy_to_use(self, set_finished=False) -> Optional[AbstractWorkerStrategy]:
+        if set_finished:
+            await self.set_devicesettings_value(MappingManagerDevicemappingKey.FINISHED, True)
         device_paused: bool = not await self._mapping_manager.is_device_active(
             self._worker_state.device_id)
         configmode: bool = application_args.config_mode
@@ -247,7 +245,7 @@ class Worker(AbstractWorker):
         configmode: bool = application_args.config_mode
         paused_or_config: bool = device_paused or configmode
         if not paused_or_config:
-            scan_strategy: Optional[AbstractWorkerStrategy] = await self.__get_current_strategy_to_use()
+            scan_strategy: Optional[AbstractWorkerStrategy] = await self.__get_current_strategy_to_use(set_finished=True)
             if scan_strategy:
                 await self.set_scan_strategy(scan_strategy)
 
@@ -258,6 +256,15 @@ class Worker(AbstractWorker):
                 await session.commit()
             except Exception as e:
                 logger.warning("Failed saving scanned location of {}: {}", self._worker_state.origin, e)
+
+    async def __area_middle_of_current_fence(self) -> Optional[Location]:
+        geofence_helper: Optional[GeofenceHelper] = await self._mapping_manager.routemanager_get_geofence_helper(
+            self._scan_strategy.area_id)
+        location: Optional[Location] = None
+        if geofence_helper:
+            lat, lng = geofence_helper.get_middle_from_fence()
+            location = Location(lat, lng)
+        return location
 
     async def check_walker(self):
         if not self._scan_strategy.walker:
@@ -286,7 +293,8 @@ class Worker(AbstractWorker):
             if not exittime or ':' not in exittime:
                 logger.error("No or wrong Value for Mode - check your settings! Killing worker")
                 return False
-            return check_walker_value_type(exittime)
+            # Fetch middle of geofence included..
+            return check_walker_value_type(exittime, await self.__area_middle_of_current_fence())
         elif mode == "round":
             logger.debug("Checking walker mode 'round'")
             rounds = self._scan_strategy.walker.algo_value
@@ -305,12 +313,12 @@ class Worker(AbstractWorker):
             if len(period) == 0:
                 logger.error("No Value for Mode - check your settings! Killing worker")
                 return False
-            return check_walker_value_type(period)
+            return check_walker_value_type(period, await self.__area_middle_of_current_fence())
         elif mode == "coords":
             exittime = self._scan_strategy.walker.algo_value
             logger.debug("Routemode coords, exittime {}", exittime)
-            if exittime: # TODO: Check if routemanager still has coords (e.g. questmode should make this one stop?)
-                return check_walker_value_type(exittime)
+            if exittime:  # TODO: Check if routemanager still has coords (e.g. questmode should make this one stop?)
+                return check_walker_value_type(exittime, await self.__area_middle_of_current_fence())
             return True
         elif mode == "idle":
             logger.debug("Checking walker mode 'idle'")
@@ -320,7 +328,7 @@ class Worker(AbstractWorker):
             sleeptime = self._scan_strategy.walker.algo_value
             logger.info('going to sleep')
             killpogo = False
-            if check_walker_value_type(sleeptime):
+            if check_walker_value_type(sleeptime, await self.__area_middle_of_current_fence()):
                 await self._scan_strategy.stop_pogo()
                 killpogo = True
                 logger.debug("Setting device to idle for routemanager")
@@ -328,7 +336,8 @@ class Worker(AbstractWorker):
                     await TrsStatusHelper.save_idle_status(session, self._db_wrapper.get_instance_id(),
                                                            self._worker_state.device_id, 0)
                     await session.commit()
-            while not self._worker_state.stop_worker_event.is_set() and check_walker_value_type(sleeptime):
+            while (not self._worker_state.stop_worker_event.is_set()
+                   and check_walker_value_type(sleeptime, await self.__area_middle_of_current_fence())):
                 await asyncio.sleep(1)
             logger.info('just woke up')
             if killpogo:
@@ -348,7 +357,7 @@ class Worker(AbstractWorker):
             await self.set_devicesettings_value(MappingManagerDevicemappingKey.FINISHED, True)
             return False
         elif self._worker_state.current_location is not None:
-            # TODO: WTF Weird validation....
+            # TODO: Rather check whether the location is within the geofence?
             logger.debug2('Coords are valid')
             return True
 

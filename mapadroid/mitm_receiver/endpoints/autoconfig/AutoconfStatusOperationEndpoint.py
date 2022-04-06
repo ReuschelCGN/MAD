@@ -11,7 +11,8 @@ from mapadroid.db.helper.AutoconfigRegistrationHelper import AutoconfigRegistrat
 from mapadroid.db.helper.SettingsDeviceHelper import SettingsDeviceHelper
 from mapadroid.db.helper.SettingsPogoauthHelper import SettingsPogoauthHelper
 from mapadroid.db.model import AutoconfigRegistration, SettingsDevice, SettingsPogoauth
-from mapadroid.mitm_receiver.endpoints.AbstractMitmReceiverRootEndpoint import AbstractMitmReceiverRootEndpoint
+from mapadroid.mitm_receiver.endpoints.AbstractMitmReceiverRootEndpoint import AbstractMitmReceiverRootEndpoint, \
+    validate_accepted
 from mapadroid.utils.PDConfig import PDConfig
 from mapadroid.utils.RGCConfig import RGCConfig
 
@@ -20,17 +21,16 @@ def validate_session(func) -> Any:
     @wraps(func)
     async def decorated(self: AutoconfStatusOperationEndpoint, *args, **kwargs):
         try:
-            body = await self.request.json()
-            session_id: Optional[int] = body.get('session_id', None)
+            session_id: int = self.request.match_info.get('session_id')
             session_id = int(session_id)
             autoconfig_registration: Optional[AutoconfigRegistration] = await AutoconfigRegistrationHelper \
                 .get_by_session_id(self._session, self._get_instance_id(), session_id)
 
             if not autoconfig_registration:
-                raise web.HTTPNotFound
-            return func(self, *args, **kwargs)
+                raise web.HTTPNotFound()
+            return await func(self, *args, **kwargs)
         except (TypeError, ValueError):
-            raise web.HTTPNotFound
+            raise web.HTTPNotFound()
 
     return decorated
 
@@ -44,7 +44,7 @@ class AutoconfStatusOperationEndpoint(AbstractMitmReceiverRootEndpoint):
         operation: Optional[str] = self.request.match_info.get('operation')
         session_id: Optional[int] = self.request.match_info.get('session_id')
         if operation is None:
-            raise web.HTTPNotFound
+            raise web.HTTPNotFound()
         log_data = {
             'session_id': session_id,
             'instance_id': self._get_instance_id(),
@@ -52,8 +52,9 @@ class AutoconfStatusOperationEndpoint(AbstractMitmReceiverRootEndpoint):
         }
         return log_data, operation
 
+    @validate_session
     async def get(self):
-        log_data, operation = self.preprocess()
+        log_data, operation = await self.preprocess()
         if operation == 'status':
             if log_data:
                 log_data['msg'] = 'Device is checking status of the session'
@@ -64,29 +65,29 @@ class AutoconfStatusOperationEndpoint(AbstractMitmReceiverRootEndpoint):
                 log_data['msg'] = 'Device is attempting to pull a config endpoint, {}'.format(operation)
                 await self.autoconfig_log(**log_data)
             return await self._autoconfig_get_config()
-        raise web.HTTPNotFound
+        raise web.HTTPNotFound()
 
     # TODO: Auth/preprocessing for autoconfig?
     async def post(self):
-        log_data, operation = self.preprocess()
+        log_data, operation = await self.preprocess()
         if operation == 'log':
-            return await self.autoconfig_log()
-        raise web.HTTPNotFound
+            await self.autoconfig_log(**log_data)
+            return web.Response(text="", status=201)
+        raise web.HTTPNotFound()
 
     async def delete(self):
-        log_data, operation = self.preprocess()
+        log_data, operation = await self.preprocess()
         if operation == 'complete':
             if log_data:
                 log_data['msg'] = 'Device ihas requested the completion of the auto-configuration session'
                 await self.autoconfig_log(**log_data)
             return await self._autoconfig_complete()
-        raise web.HTTPNotFound
+        raise web.HTTPNotFound()
 
-    @validate_session
+    @validate_accepted
     async def _autoconfig_get_config(self):
-        body = await self.request.json()
-        session_id: Optional[int] = body.get('session_id', None)
-        operation: Optional[str] = body.get('operation', None)
+        session_id: int = self.request.match_info.get('session_id')
+        operation: Optional[str] = self.request.match_info.get('operation')
         try:
             device_settings: Optional[SettingsDevice] = await SettingsDeviceHelper \
                 .get_device_settings_with_autoconfig_registration_pending(self._session, self._get_instance_id(),
@@ -98,8 +99,9 @@ class AutoconfStatusOperationEndpoint(AbstractMitmReceiverRootEndpoint):
                     config = RGCConfig(self._session, self._get_instance_id(), self._get_mad_args())
                 await config.load_config()
                 # TODO: Fix return type of generate_config/stream it properly
-                return web.FileResponse(await config.generate_config(device_settings.name),
-                                        headers={'Content-Disposition': f"Attachment; filename=conf.xml"})
+                config_bytes = await config.generate_config(device_settings.name)
+                return web.Response(body=config_bytes,
+                                    headers={'Content-Disposition': f"Attachment; filename=conf.xml"})
             elif operation in ['google']:
                 login: Optional[SettingsPogoauth] = await SettingsPogoauthHelper \
                     .get_google_credentials_of_autoconfig_registered_device(self._session, self._get_instance_id(),
@@ -110,14 +112,13 @@ class AutoconfStatusOperationEndpoint(AbstractMitmReceiverRootEndpoint):
                     raise web.HTTPNotFound
             elif operation == 'origin':
                 return web.Response(status=200, text=device_settings.name)
-        except Exception:
+        except Exception as e:
             logger.opt(exception=True).critical('Unable to process autoconfig')
-            raise web.HTTPNotAcceptable
+            raise web.HTTPNotAcceptable()
 
     @validate_session
     async def _autoconfig_complete(self):
-        body = await self.request.json()
-        session_id: Optional[int] = body.get('session_id', None)
+        session_id: int = self.request.match_info.get('session_id')
         try:
             max_msg_level: Optional[int] = await AutoconfigLogsHelper \
                 .get_max_level_of_session(self._session, self._get_instance_id(), session_id)
@@ -126,10 +127,10 @@ class AutoconfStatusOperationEndpoint(AbstractMitmReceiverRootEndpoint):
                 await AutoconfigRegistrationHelper.update_status(self._session, self._get_instance_id(), session_id,
                                                                  status=4)
                 await self._session.commit()
-                raise web.HTTPBadRequest
+                raise web.HTTPBadRequest()
             await AutoconfigRegistrationHelper.delete(self._session, self._get_instance_id(), session_id)
             self._commit_trigger = True
             return web.Response(status=200, text="")
         except Exception:
             logger.opt(exception=True).error('Unable to delete session')
-            raise web.HTTPNotFound
+            raise web.HTTPNotFound()

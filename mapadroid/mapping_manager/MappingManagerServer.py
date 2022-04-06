@@ -6,7 +6,7 @@ from grpc._cython.cygrpc import CompressionAlgorithm, CompressionLevel
 from mapadroid.grpc.compiled.mapping_manager.mapping_manager_pb2 import GetAllowedAuthenticationCredentialsRequest, \
     GetAllowedAuthenticationCredentialsResponse, GetAllLoadedOriginsRequest, GetAllLoadedOriginsResponse, \
     GetSafeItemsNotToDeleteRequest, GetSafeItemsNotToDeleteResponse, IsRoutemanagerOfOriginLevelmodeRequest, \
-    IsRoutemanagerOfOriginLevelmodeResponse
+    IsRoutemanagerOfOriginLevelmodeResponse, GetQuestLayerToScanOfOriginRequest, GetQuestLayerToScanOfOriginResponse
 from mapadroid.grpc.stubs.mapping_manager.mapping_manager_pb2_grpc import MappingManagerServicer, \
     add_MappingManagerServicer_to_server
 from mapadroid.mapping_manager.AbstractMappingManager import AbstractMappingManager
@@ -40,7 +40,8 @@ class MappingManagerServer(MappingManagerServicer):
         await self.__server.start()
 
     async def __secure_port(self, address):
-        with open(application_args.mappingmanager_tls_private_key_file, 'r') as keyfile, open(application_args.mappingmanager_tls_cert_file, 'r') as certfile:
+        with open(application_args.mappingmanager_tls_private_key_file, 'r') as keyfile, open(
+                application_args.mappingmanager_tls_cert_file, 'r') as certfile:
             private_key = keyfile.read()
             certificate_chain = certfile.read()
         credentials = grpc.ssl_server_credentials(
@@ -83,5 +84,15 @@ class MappingManagerServer(MappingManagerServicer):
     async def IsRoutemanagerOfOriginLevelmode(self, request: IsRoutemanagerOfOriginLevelmodeRequest,
                                               context: grpc.aio.ServicerContext) -> IsRoutemanagerOfOriginLevelmodeResponse:
         response = IsRoutemanagerOfOriginLevelmodeResponse()
-        response.is_levelmode = await self.__mapping_manager_impl.routemanager_of_origin_is_levelmode(origin=request.worker.name)
+        response.is_levelmode = await self.__mapping_manager_impl.routemanager_of_origin_is_levelmode(
+            origin=request.worker.name)
+        return response
+
+    async def GetQuestLayerToScanOfOrigin(self, request: GetQuestLayerToScanOfOriginRequest,
+                                          context: grpc.aio.ServicerContext) -> GetQuestLayerToScanOfOriginResponse:
+        response: GetQuestLayerToScanOfOriginResponse = GetQuestLayerToScanOfOriginResponse()
+        quest_layer_to_scan: Optional[int] = await self.__mapping_manager_impl\
+            .routemanager_get_quest_layer_to_scan_of_origin(request.worker.name)
+        if quest_layer_to_scan is not None:
+            response.layer = quest_layer_to_scan
         return response

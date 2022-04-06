@@ -34,12 +34,19 @@ class AutoconfigRegistrationHelper:
         return result.scalars().first()
 
     @staticmethod
-    async def update_status(session: AsyncSession, instance_id: int, session_id: int, status: int) -> None:
-        stmt = update(AutoconfigRegistration) \
-            .where(and_(AutoconfigRegistration.instance_id == instance_id,
-                        AutoconfigRegistration.session_id == session_id)) \
-            .values(status=status)
-        await session.execute(stmt)
+    async def update_status(session: AsyncSession, instance_id: int, session_id: int, status: int,
+                            device_id: Optional[int] = None) -> Optional[AutoconfigRegistration]:
+        registration: Optional[AutoconfigRegistration] = await AutoconfigRegistrationHelper\
+            .get_by_session_id(session, instance_id, session_id)
+        if not registration:
+            return registration
+        async with session.begin_nested() as nested_transaction:
+            registration.status = status
+            if device_id:
+                registration.device_id = device_id
+            await session.flush([registration])
+            await nested_transaction.commit()
+        return registration
 
     @staticmethod
     async def update_ip(session: AsyncSession, instance_id: int, session_id: int, request_ip: str) -> None:
@@ -68,10 +75,13 @@ class AutoconfigRegistrationHelper:
         """
         stmt = select(AutoconfigRegistration, SettingsDevice) \
             .select_from(AutoconfigRegistration) \
-            .join(SettingsDevice, SettingsDevice.device_id == AutoconfigRegistration.device_id) \
+            .join(SettingsDevice, SettingsDevice.device_id == AutoconfigRegistration.device_id, isouter=True) \
             .where(AutoconfigRegistration.instance_id == instance_id)
         result = await session.execute(stmt)
-        return result.all()
+        result_list: List[Tuple[AutoconfigRegistration, SettingsDevice]] = []
+        for reg, dev in result.all():
+            result_list.append((reg, dev))
+        return result_list
 
     @staticmethod
     async def delete(session: AsyncSession, instance_id: int, session_id: int) -> None:

@@ -2,8 +2,8 @@
 """Client and server classes corresponding to protobuf-defined services."""
 import grpc
 
-from mapadroid.grpc.compiled.stats_handler import stats_handler_pb2 as stats__handler_dot_stats__handler__pb2
 from mapadroid.grpc.compiled.shared import Ack_pb2 as shared_dot_Ack__pb2
+from mapadroid.grpc.compiled.stats_handler import stats_handler_pb2 as stats__handler_dot_stats__handler__pb2
 
 
 class StatsHandlerStub(object):
