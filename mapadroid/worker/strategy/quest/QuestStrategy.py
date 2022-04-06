@@ -554,8 +554,14 @@ class QuestStrategy(AbstractMitmBaseStrategy, ABC):
             logger.info("Stop at {}, {} cannot be spun at the moment ({})",
                         self._worker_state.current_location.lat,
                         self._worker_state.current_location.lng,
-                        stop_type)
-            raise AbortStopProcessingException("Stop cannot be spun at the moment")
+                       stop_type)
+            async with self._db_wrapper as session, session:
+                if await TrsQuestHelper.check_stop_has_quest(session, self._worker_state.current_location,
+                                                             self._quest_layer_to_scan):
+                    logger.success('Quest is done without us noticing. Getting new Quest...')
+                    raise AbortStopProcessingException("Stop cannot be spun, but still got quest - continue")
+                else:
+                    raise AbortStopProcessingException("Stop cannot be spun at the moment - retry later")
         elif stop_type == PositionStopType.VISITED_STOP_IN_LEVEL_MODE_TO_IGNORE:
             logger.info("Stop at {}, {} has been spun before and is to be ignored in the next round.")
             await self._mapping_manager.routemanager_add_coords_to_be_removed(self._area_id,
@@ -802,7 +808,7 @@ class QuestStrategy(AbstractMitmBaseStrategy, ABC):
         # waiting for.
         # TODO: Additionally, we may need to limit the amount of quests to be processed/accepted depending on the layer?
         to = 0
-        timeout = 35
+        timeout = 10
         type_received: ReceivedType = ReceivedType.UNDEFINED
         data_received = FortSearchResultTypes.UNDEFINED
         # TODO: Only try it once basically, then try clicking stop. Detect softban for sleeping?
@@ -877,9 +883,9 @@ class QuestStrategy(AbstractMitmBaseStrategy, ABC):
                 else:
                     logger.info("Failed retrieving stop spin...")
                     self._stop_process_time = math.floor(time.time())
-                    if to > 2 and await TrsQuestHelper.check_stop_has_quest(session,
-                                                                            self._worker_state.current_location,
-                                                                            self._quest_layer_to_scan):
+                    if await TrsQuestHelper.check_stop_has_quest(session,
+                                                                 self._worker_state.current_location,
+                                                                 self._quest_layer_to_scan):
                         logger.info('Quest is done without us noticing. Getting new Quest...')
                         break
                     elif to > 2 and await self._mapping_manager.routemanager_is_levelmode(
@@ -893,6 +899,8 @@ class QuestStrategy(AbstractMitmBaseStrategy, ABC):
 
                     await asyncio.sleep(1)
                 to += 1
+                if to > 1:
+                    logger.warning("giving up spinning after 3 tries in handle_stop loop")
             else:
                 if data_received != FortSearchResultTypes.QUEST and not self._clustering_enabled:
                     # TODO
