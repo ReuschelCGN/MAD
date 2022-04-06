@@ -50,11 +50,7 @@ class Gym(Base):
     longitude = Column(Float(asdecimal=True), nullable=False)
     total_cp = Column(SMALLINT(6), nullable=False)
     is_in_battle = Column(BOOLEAN, nullable=False)
-    gender = Column(SMALLINT(6))
-    form = Column(SMALLINT(6))
-    costume = Column(SMALLINT(6))
     weather_boosted_condition = Column(SMALLINT(6))
-    shiny = Column(BOOLEAN)
     last_modified = Column(TZDateTime, nullable=False, index=True)
     last_scanned = Column(TZDateTime, nullable=False, index=True)
     is_ex_raid_eligible = Column(BOOLEAN)
@@ -87,23 +83,6 @@ class MadminInstance(Base):
 
     instance_id = Column(INTEGER(10), primary_key=True)
     name = Column(String(128, 'utf8mb4_unicode_ci'), nullable=False, unique=True)
-
-
-class Nest(Base):
-    __tablename__ = 'nests'
-    __table_args__ = (
-        Index('CoordsIndex', 'lat', 'lon'),
-    )
-
-    nest_id = Column(BIGINT(20), primary_key=True)
-    lat = Column(Float(asdecimal=True))
-    lon = Column(Float(asdecimal=True))
-    pokemon_id = Column(INTEGER(11))
-    updated = Column(BIGINT(20), index=True)
-    type = Column(TINYINT(4), nullable=False)
-    name = Column(VARCHAR(250))
-    pokemon_count = Column(Float(asdecimal=True))
-    pokemon_avg = Column(Float(asdecimal=True))
 
 
 class OriginHopper(Base):
@@ -202,13 +181,6 @@ class Raid(Base):
     gender = Column(TINYINT(1))
     costume = Column(TINYINT(1))
     evolution = Column(SMALLINT(6))
-
-
-class Rmversion(Base):
-    __tablename__ = 'rmversion'
-
-    key = Column(VARCHAR(16), primary_key=True)
-    val = Column(SMALLINT(6))
 
 
 class Scannedlocation(Base):
@@ -420,17 +392,6 @@ class TrsVisited(Base):
     origin = Column(String(50, 'utf8mb4_unicode_ci'), primary_key=True, nullable=False)
 
 
-class TrsHash(Base):
-    __tablename__ = 'trshash'
-
-    hashid = Column(MEDIUMINT(9), primary_key=True)
-    hash = Column(String(255, 'utf8mb4_unicode_ci'), nullable=False)
-    type = Column(String(10, 'utf8mb4_unicode_ci'), nullable=False)
-    id = Column(String(255, 'utf8mb4_unicode_ci'), nullable=False)
-    count = Column(INTEGER(10), nullable=False, server_default=text("'1'"))
-    modify = Column(TZDateTime, nullable=False, server_default=text("CURRENT_TIMESTAMP"))
-
-
 t_v_trs_status = Table(
     'v_trs_status', metadata,
     Column('instance_id', INTEGER(10)),
@@ -442,7 +403,6 @@ t_v_trs_status = Table(
     Column('rmname', String(128)),
     Column('mode', String(10)),
     Column('rebootCounter', INTEGER(11)),
-    Column('init', BOOLEAN),
     Column('currentSleepTime', INTEGER(11), server_default=text("'0'")),
     Column('rebootingOption', BOOLEAN),
     Column('restartCounter', INTEGER(11)),
@@ -559,7 +519,6 @@ class SettingsAreaMonMitm(SettingsArea):
     __tablename__ = 'settings_area_mon_mitm'
 
     area_id = Column(ForeignKey('settings_area.area_id', ondelete='CASCADE'), primary_key=True, autoincrement=True)
-    init = Column(BOOLEAN, nullable=False)
     geofence_included = Column(ForeignKey('settings_geofence.geofence_id'), nullable=False, index=True)
     geofence_excluded = Column(String(256, 'utf8mb4_unicode_ci'))
     routecalc = Column(ForeignKey('settings_routecalc.routecalc_id'), nullable=False, index=True)
@@ -570,7 +529,6 @@ class SettingsAreaMonMitm(SettingsArea):
     priority_queue_clustering_timedelta = Column(Float)
     remove_from_queue_backlog = Column(Float)
     starve_route = Column(BOOLEAN)
-    init_mode_rounds = Column(INTEGER(11))
     monlist_id = Column(ForeignKey('settings_monivlist.monlist_id'), index=True)
     all_mons = Column(BOOLEAN, nullable=False, server_default=text("'0'"))
     min_time_left_seconds = Column(INTEGER(11))
@@ -590,7 +548,6 @@ class SettingsAreaPokestop(SettingsArea):
     geofence_included = Column(ForeignKey('settings_geofence.geofence_id'), nullable=False, index=True)
     geofence_excluded = Column(String(256, 'utf8mb4_unicode_ci'))
     routecalc = Column(ForeignKey('settings_routecalc.routecalc_id'), nullable=False, index=True)
-    init = Column(BOOLEAN, nullable=False)
     level = Column(BOOLEAN)
     route_calc_algorithm = Column(ENUM('route', 'routefree'))
     speed = Column(Float)
@@ -610,7 +567,6 @@ class SettingsAreaRaidsMitm(SettingsArea):
     __tablename__ = 'settings_area_raids_mitm'
 
     area_id = Column(ForeignKey('settings_area.area_id', ondelete='CASCADE'), primary_key=True, autoincrement=True)
-    init = Column(BOOLEAN, nullable=False)
     geofence_included = Column(ForeignKey('settings_geofence.geofence_id'), nullable=False, index=True)
     geofence_excluded = Column(String(256, 'utf8mb4_unicode_ci'))
     routecalc = Column(ForeignKey('settings_routecalc.routecalc_id'), nullable=False, index=True)
@@ -621,10 +577,28 @@ class SettingsAreaRaidsMitm(SettingsArea):
     priority_queue_clustering_timedelta = Column(Float)
     remove_from_queue_backlog = Column(Float)
     starve_route = Column(BOOLEAN)
-    init_mode_rounds = Column(INTEGER(11))
     monlist_id = Column(ForeignKey('settings_monivlist.monlist_id'), index=True)
     all_mons = Column(BOOLEAN, nullable=False, server_default=text("'0'"))
     encounter_all = Column(BOOLEAN)
+
+    settings_geofence = relationship('SettingsGeofence')
+    monlist = relationship('SettingsMonivlist')
+    settings_routecalc = relationship('SettingsRoutecalc')
+
+
+class SettingsAreaInitMitm(SettingsArea):
+    __tablename__ = 'settings_area_init_mitm'
+
+    area_id = Column(ForeignKey('settings_area.area_id', ondelete='CASCADE'), primary_key=True, autoincrement=True)
+    geofence_included = Column(ForeignKey('settings_geofence.geofence_id'), nullable=False, index=True)
+    geofence_excluded = Column(String(256, 'utf8mb4_unicode_ci'))
+    routecalc = Column(ForeignKey('settings_routecalc.routecalc_id'), nullable=False, index=True)
+    init_type = Column(ENUM('forts', 'mons'), nullable=False)
+    init_mode_rounds = Column(INTEGER(11))
+    monlist_id = Column(ForeignKey('settings_monivlist.monlist_id'), index=True)
+    all_mons = Column(BOOLEAN, nullable=False, server_default=text("'0'"))
+    speed = Column(Float)
+    max_distance = Column(Float)
 
     settings_geofence = relationship('SettingsGeofence')
     monlist = relationship('SettingsMonivlist')
@@ -769,7 +743,6 @@ class TrsStatus(Base):
     rebootCounter = Column(INTEGER(11))
     lastProtoDateTime = Column(TZDateTime)
     lastPogoRestart = Column(TZDateTime)
-    init = Column(BOOLEAN)
     rebootingOption = Column(BOOLEAN)
     restartCounter = Column(INTEGER(11))
     lastPogoReboot = Column(TZDateTime)

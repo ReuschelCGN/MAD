@@ -52,6 +52,13 @@ class NoMaddevApiTokenError(Exception):
     pass
 
 
+class RoutemanagerShuttingDown(Exception):
+    """
+    Exception indicating a shutdown of the routemanager
+    """
+    pass
+
+
 class ScreenshotType(Enum):
     JPEG = 0
     PNG = 1
@@ -62,6 +69,11 @@ class TeamColours(Enum):
     BLUE = "Blue"
     RED = "Red"
     WHITE = "White"
+
+
+class RoutecalculationTypes(Enum):
+    TSP_QUICK = 0,
+    OR_TOOLS = 1
 
 
 class MonSeenTypes(IntEnum):
