@@ -345,6 +345,24 @@ def parse_args():
     parser.add_argument('-cdb', '--cache_database', default=0,
                         help=('Redis database. Use different numbers (0-15) if you are running multiple instances'))
 
+    # PTC login rate limiting
+    parser.add_argument('-elt', '--enable_login_tracking', action='store_true', default=False,
+                        help=('Enable tracking of login attempts to PTC'))
+    parser.add_argument('-ltm', '--login_tracking_mode', default='local',
+                        help=('Store login data within the instance (local), or track it using a redis server (redis)'))
+    parser.add_argument('-lth', '--login_tracking_host', default='localhost',
+                        help=('Redis host used by login tracking'))
+    parser.add_argument('-ltp', '--login_tracking_port', type=int, default=6379,
+                        help=('Redis port used by login tracking'))
+    parser.add_argument('-ltdb', '--login_tracking_database', type=int, default=0,
+                        help=('Redis database used by login tracking. Uses numbers (0-15)'))
+    parser.add_argument('-ltc', '--login_tracking_count', type=int, default=15,
+                        help=('Number of allowed logins per timeframe defined by login_tracking_seconds '
+                              '(Default: 15)'))
+    parser.add_argument('-lts', '--login_tracking_seconds', type=int, default=360,
+                        help=('Time until a login attempt no longer counts against the login_tracking_count '
+                              '(default: 360)'))
+
     if "MODE" in os.environ and os.environ["MODE"] == "DEV":
         args = parser.parse_known_args()[0]
     else:
