@@ -12,7 +12,7 @@ from mapadroid.data_handler.mitm_data.AbstractMitmMapper import AbstractMitmMapp
 from mapadroid.data_handler.stats.AbstractStatsHandler import AbstractStatsHandler
 from mapadroid.db.DbPogoProtoSubmit import DbPogoProtoSubmit
 from mapadroid.db.DbWrapper import DbWrapper
-from mapadroid.db.helper.TrsStatusHelper import TrsStatusHelper
+from mapadroid.db.helper.TrsVisitedHelper import TrsVisitedHelper
 from mapadroid.utils.DatetimeWrapper import DatetimeWrapper
 from mapadroid.utils.gamemechanicutil import determine_current_quest_layer
 from mapadroid.utils.madGlobals import MitmReceiverRetry, MonSeenTypes, application_args, QuestLayer
@@ -90,13 +90,22 @@ class SerializedMitmDataProcessor:
                 logger.debug("Processing proto 101 (FORT_SEARCH)")
                 async with self.__db_wrapper as session, session:
                     try:
-                        quest_layer: QuestLayer = determine_current_quest_layer(await self.__mitm_mapper
-                                                                                .get_quests_held(origin))
-                        new_quest: bool = await self.__db_submit.quest(session, data["payload"], self.__quest_gen,
-                                                                       quest_layer)
-                        if new_quest:
-                            await self.__stats_handler.stats_collect_quest(origin, processed_timestamp)
-                        await session.commit()
+                        if data["payload"]["result"] == 1:
+                            async with session.begin_nested() as nested_transaction:
+                                fort_id = data["payload"].get("fort_id", None)
+                                await TrsVisitedHelper.mark_visited(session, origin, fort_id)
+                                try:
+                                    await nested_transaction.commit()
+                                except sqlalchemy.exc.IntegrityError as e:
+                                    logger.warning("Failed marking stop {} as visited ({})", fort_id, str(e))
+                                    await nested_transaction.rollback()
+                            quest_layer: QuestLayer = determine_current_quest_layer(await self.__mitm_mapper
+                                                                                    .get_quests_held(origin))
+                            new_quest: bool = await self.__db_submit.quest(session, data["payload"], self.__quest_gen,
+                                                                           quest_layer)
+                            if new_quest:
+                                await self.__stats_handler.stats_collect_quest(origin, processed_timestamp)
+                            await session.commit()
                     except Exception as e:
                         logger.warning("Failed submitting quests to DB: {}", e)
 

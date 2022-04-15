@@ -25,7 +25,7 @@ class WebhookWorker:
 
     def __init__(self, args, db_wrapper: DbWrapper, mapping_manager: MappingManager, rarity, quest_gen: QuestGen):
         self.__quest_gen: QuestGen = quest_gen
-        self.__worker_interval_sec = 10
+        self.__worker_interval_sec = args.webhook_worker_interval
         self.__args = args
         self.__db_wrapper: DbWrapper = db_wrapper
         self.__rarity = rarity
@@ -167,7 +167,8 @@ class WebhookWorker:
                 "quest_condition": transformed_quest["quest_condition"].replace("'", '"').lower(),
                 "quest_template": transformed_quest["quest_template"],
                 "is_ar_scan_eligible": transformed_quest["is_ar_scan_eligible"],
-                "quest_title": transformed_quest["quest_title"]
+                "quest_title": transformed_quest["quest_title"],
+                "with_ar": bool(transformed_quest["quest_layer"])
             }
 
         # Other known type is Poracle/RDM compatible.
@@ -300,6 +301,7 @@ class WebhookWorker:
             "target": transformed_quest["quest_target"],
             "updated": transformed_quest["timestamp"],
             "quest_task": transformed_quest["quest_task"],
+            "with_ar": bool(transformed_quest["quest_layer"])
         }
 
     def __prepare_weather_data(self, weather_data):
@@ -712,7 +714,7 @@ class WebhookWorker:
         return loop.create_task(self.__run_worker())
 
     async def __run_worker(self):
-        logger.info("Starting webhook worker thread")
+        logger.info("Starting webhook worker thread, sending payload every {} seconds", self.__worker_interval_sec)
 
         self.__build_webhook_receivers()
         await self.__build_excluded_areas()

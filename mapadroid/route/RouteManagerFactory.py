@@ -2,18 +2,18 @@ from typing import List, Optional
 
 from mapadroid.db.DbWrapper import DbWrapper
 from mapadroid.db.model import (SettingsArea, SettingsAreaPokestop,
-                                SettingsAreaRaidsMitm, SettingsRoutecalc)
+                                SettingsAreaRaidsMitm, SettingsRoutecalc, SettingsAreaInitMitm)
 from mapadroid.geofence.geofenceHelper import GeofenceHelper
 from mapadroid.route.RouteManagerBase import RouteManagerBase
 from mapadroid.route.RouteManagerIV import RouteManagerIV
 from mapadroid.route.RouteManagerIdle import RouteManagerIdle
+from mapadroid.route.RouteManagerInit import RouteManagerInit
 from mapadroid.route.RouteManagerLeveling import RouteManagerLeveling
-from mapadroid.route.RouteManagerLevelingRoutefree import \
-    RouteManagerLevelingRoutefree
 from mapadroid.route.RouteManagerMon import RouteManagerMon
 from mapadroid.route.RouteManagerQuests import RouteManagerQuests
 from mapadroid.route.RouteManagerRaids import RouteManagerRaids
 from mapadroid.utils.collections import Location
+from mapadroid.utils.madGlobals import InitTypes
 from mapadroid.worker.WorkerType import WorkerType
 
 
@@ -56,14 +56,7 @@ class RouteManagerFactory:
             if area.enable_clustering:
                 max_coords_within_radius_stops = 9999 if area.level else 3
 
-            if area.level and area.route_calc_algorithm == 'routefree':
-                route_manager = RouteManagerLevelingRoutefree(db_wrapper=db_wrapper, area=area, coords=coords,
-                                                              max_radius=max_radius,
-                                                              max_coords_within_radius=max_coords_within_radius_stops,
-                                                              geofence_helper=geofence_helper, routecalc=routecalc,
-                                                              mon_ids_iv=mon_ids_iv
-                                                              )
-            elif area.level:
+            if area.level:
                 route_manager = RouteManagerLeveling(db_wrapper=db_wrapper, area=area, coords=coords,
                                                      max_radius=max_radius,
                                                      max_coords_within_radius=max_coords_within_radius_stops,
@@ -77,6 +70,17 @@ class RouteManagerFactory:
                                                    geofence_helper=geofence_helper, routecalc=routecalc,
                                                    mon_ids_iv=mon_ids_iv
                                                    )
+        elif area.mode == WorkerType.INIT.value:
+            area: SettingsAreaInitMitm = area
+            max_radius = max_radius
+            if area.init_type == InitTypes.FORTS.value:
+                max_radius = 490
+            # TODO: Remove magic numbers, move elsewhere...
+            route_manager = RouteManagerInit(db_wrapper=db_wrapper, area=area, coords=coords, max_radius=max_radius,
+                                             max_coords_within_radius=max_coords_within_radius,
+                                             geofence_helper=geofence_helper, routecalc=routecalc,
+                                             use_s2=use_s2, s2_level=s2_level, mon_ids_iv=mon_ids_iv
+                                             )
         else:
             raise RuntimeError("Invalid mode found in mapping parser.")
         return route_manager

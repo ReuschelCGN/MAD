@@ -30,6 +30,10 @@ from mapadroid.db.model import (Gym, GymDetail, Pokemon, Pokestop, Raid,
 from mapadroid.utils.DatetimeWrapper import DatetimeWrapper
 from mapadroid.utils.gamemechanicutil import (gen_despawn_timestamp,
                                               is_mon_ditto)
+from mapadroid.utils.madConstants import (REDIS_CACHETIME_MON_LURE_IV, REDIS_CACHETIME_STOP_DETAILS,
+                                          REDIS_CACHETIME_GYMS,
+                                          REDIS_CACHETIME_RAIDS, REDIS_CACHETIME_CELLS,
+                                          REDIS_CACHETIME_WEATHER, REDIS_CACHETIME_POKESTOP_DATA)
 from mapadroid.utils.madGlobals import MonSeenTypes, QuestLayer
 from mapadroid.utils.questGen import QuestGen
 from mapadroid.utils.s2Helper import S2Helper
@@ -405,7 +409,7 @@ class DbPogoProtoSubmit:
             session.add(mon)
             await self.maybe_save_ditto(session, display, encounter_id, mon_id, pokemon_data)
             await nested_transaction.commit()
-            await self._cache.set(cache_key, 1, ex=60 * 3)
+            await self._cache.set(cache_key, 1, ex=REDIS_CACHETIME_MON_LURE_IV)
             time_done = time.time() - time_start_submit
             logger.success("Done updating mon lure IV in DB in {} seconds", time_done)
         return encounter_id, now
@@ -469,7 +473,7 @@ class DbPogoProtoSubmit:
                             logger.debug("Submitting lured non-IV mon {}", encounter_id)
                             session.add(mon)
                             await nested_transaction.commit()
-                            await self._cache.set(cache_key, 1, ex=60 * 3)
+                            await self._cache.set(cache_key, 1, ex=REDIS_CACHETIME_MON_LURE_IV)
                         except sqlalchemy.exc.IntegrityError as e:
                             logger.debug("Failed committing lured non-IV mon {} ({}). Safe to ignore.", encounter_id,
                                          str(e))
@@ -631,7 +635,7 @@ class DbPogoProtoSubmit:
                 try:
                     session.add(stop)
                     await nested_transaction.commit()
-                    await self._cache.set(cache_key, 1, ex=900)
+                    await self._cache.set(cache_key, 1, ex=REDIS_CACHETIME_STOP_DETAILS)
                 except sqlalchemy.exc.IntegrityError as e:
                     logger.warning("Failed committing stop details of {} ({})", stop.pokestop_id, str(e))
                     await nested_transaction.rollback()
@@ -743,7 +747,7 @@ class DbPogoProtoSubmit:
                     s2_cell_id = S2Helper.lat_lng_to_cell_id(latitude, longitude)
                     weather: Optional[Weather] = await WeatherHelper.get(session, s2_cell_id)
 
-                    cache_key = "gym{}{}{}".format(gymid, last_modified_ts, weather)
+                    cache_key = "gym{}{}{}".format(gymid, last_modified_ts, weather.gameplay_weather)
                     if await self._cache.exists(cache_key):
                         continue
                     guard_pokemon_id = gym["gym_details"]["guard_pokemon"]
@@ -764,7 +768,7 @@ class DbPogoProtoSubmit:
                     gym_obj.enabled = is_enabled
                     gym_obj.latitude = latitude
                     gym_obj.longitude = longitude
-                    gym_obj.total_cp = 0  # TODO: Read from proto?
+                    gym_obj.total_cp = gym.get("gym_display", {}).get("total_gym_cp", 0)
                     gym_obj.is_in_battle = is_in_battle
                     gym_obj.last_modified = last_modified
                     gym_obj.last_scanned = time_receiver
@@ -777,14 +781,17 @@ class DbPogoProtoSubmit:
                         gym_detail: GymDetail = GymDetail()
                         gym_detail.gym_id = gymid
                         gym_detail.name = "unknown"
-                    gym_detail.url = gym.get("image_url", "")
+                        gym_detail.url = ""
+                    gym_url = gym.get("image_url", "")
+                    if gym_url and gym_url.strip():
+                        gym_detail.url = gym_url.strip()
                     gym_detail.last_scanned = time_receiver
                     async with session.begin_nested() as nested_transaction:
                         try:
                             session.add(gym_obj)
                             session.add(gym_detail)
                             await nested_transaction.commit()
-                            await self._cache.set(cache_key, 1, ex=900)
+                            await self._cache.set(cache_key, 1, ex=REDIS_CACHETIME_GYMS)
                         except sqlalchemy.exc.IntegrityError as e:
                             logger.warning("Failed committing gym data of {} ({})", gymid, str(e))
                             await nested_transaction.rollback()
@@ -913,7 +920,7 @@ class DbPogoProtoSubmit:
                         try:
                             session.add(raid)
                             await nested_transaction.commit()
-                            await self._cache.set(cache_key, 1, ex=900)
+                            await self._cache.set(cache_key, 1, ex=REDIS_CACHETIME_RAIDS)
                         except sqlalchemy.exc.IntegrityError as e:
                             logger.warning("Failed committing raid for gym {} ({})", gymid, str(e))
                             await nested_transaction.rollback()
@@ -945,7 +952,7 @@ class DbPogoProtoSubmit:
             cache_key = "s2cell{}".format(cell_id)
             if await self._cache.exists(cache_key):
                 continue
-            await self._cache.set(cache_key, 1, ex=60)
+            await self._cache.set(cache_key, 1, ex=REDIS_CACHETIME_CELLS)
             logger.debug3("Updating s2cell {}", cell_id)
             try:
                 await TrsS2CellHelper.insert_update_cell(session, cell)
@@ -1030,7 +1037,7 @@ class DbPogoProtoSubmit:
         try:
             session.add(pokestop)
             await session.commit()
-            await self._cache.set(cache_key, 1, ex=900)
+            await self._cache.set(cache_key, 1, ex=REDIS_CACHETIME_POKESTOP_DATA)
         except sqlalchemy.exc.IntegrityError as e:
             logger.warning("Failed committing stop {} ({})", stop_id, str(e))
             await session.rollback()
@@ -1051,7 +1058,8 @@ class DbPogoProtoSubmit:
         pokestop.latitude = stop_data["latitude"]
         pokestop.longitude = stop_data["longitude"]
         pokestop.name = name
-        pokestop.image = image
+        if image and image[0]:
+            pokestop.image = image[0]
         pokestop.last_updated = now
         pokestop.enabled = stop_data.get("enabled", 1)
         pokestop.last_modified = DatetimeWrapper.fromtimestamp(
@@ -1102,7 +1110,7 @@ class DbPogoProtoSubmit:
                     return
 
                 session.add(weather)
-                await self._cache.set(cache_key, 1, ex=900)
+                await self._cache.set(cache_key, 1, ex=REDIS_CACHETIME_WEATHER)
                 await nested_transaction.commit()
             except sqlalchemy.exc.IntegrityError as e:
                 logger.warning("Failed committing weather of cell {} ({})", cell_id, str(e))

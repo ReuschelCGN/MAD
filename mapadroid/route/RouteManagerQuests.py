@@ -25,7 +25,6 @@ class RouteManagerQuests(RouteManagerBase):
                                   mon_ids_iv=mon_ids_iv,
                                   initial_prioq_strategy=None)
         self._settings: SettingsAreaPokestop = area
-        self._calctype: str = area.route_calc_algorithm
         self._stoplist: List[Location] = []
         self._routecopy: List[Location] = []
         self._tempinit: bool = False
@@ -41,6 +40,8 @@ class RouteManagerQuests(RouteManagerBase):
                 locations_of_stops: List[Location] = [Location(float(stop.latitude), float(stop.longitude)) for
                                                       stop_id, stop in
                                                       stops.items()]
+                # also store the latest set in _stoplist
+                self._stoplist = locations_of_stops
                 return locations_of_stops
 
     async def _any_coords_left_after_finishing_route(self) -> bool:
@@ -49,10 +50,9 @@ class RouteManagerQuests(RouteManagerBase):
                 logger.info('Other worker shutdown - leaving it')
                 return False
 
-            if self._start_calc:
+            if self._start_calc.is_set():
                 logger.info("Another process already calculate the new route")
                 return True
-            self._start_calc = True
             if len(self._stoplist) == 0:
                 logger.info("No new stops - leaving now.")
                 await self.stop_routemanager()
@@ -64,7 +64,6 @@ class RouteManagerQuests(RouteManagerBase):
             if len(coords) > 0:
                 logger.info("Getting new coords - recalculating route")
                 await self.calculate_route(True)
-                self._start_calc = False
             else:
                 logger.info("Dont getting new stops - leaving now.")
                 await self.stop_routemanager()

@@ -45,25 +45,25 @@ mode_mapping = {
     "raids_mitm": {
         "s2_cell_level": 15,
         "range": 490,
-        "range_init": 980,
         "max_count": 100000
     },
     "mon_mitm": {
         "s2_cell_level": 17,
         "range": 67,
-        "range_init": 145,
         "max_count": 100000
     },
     "pokestops": {
         "s2_cell_level": 13,
-        "range": 70, # stop interaction radius is 80m
-        "range_init": 980,
+        "range": 70,  # stop interaction radius is 80m
         "max_count": 1
     },
     "iv_mitm": {
         "range": 67,
-        "range_init": 0,
         "max_count": 999999
+    },
+    "init": {
+        "range": 67,
+        "max_count": 1,
     }
 }
 
@@ -398,7 +398,7 @@ class MappingManager(AbstractMappingManager):
 
     async def register_worker_to_routemanager(self, routemanager_id: int, worker_name: str) -> bool:
         routemanager = self.__fetch_routemanager(routemanager_id)
-        return routemanager.register_worker(worker_name) if routemanager is not None else False
+        return await routemanager.register_worker(worker_name) if routemanager is not None else False
 
     async def unregister_worker_from_routemanager(self, routemanager_id: int, worker_name: str):
         routemanager = self.__fetch_routemanager(routemanager_id)
@@ -437,10 +437,6 @@ class MappingManager(AbstractMappingManager):
     async def routemanager_is_levelmode(self, routemanager_id: int) -> bool:
         routemanager = self.__fetch_routemanager(routemanager_id)
         return routemanager.is_level_mode() if routemanager is not None else None
-
-    async def routemanager_get_calc_type(self, routemanager_id: int) -> str:
-        routemanager = self.__fetch_routemanager(routemanager_id)
-        return routemanager.get_calc_type() if routemanager is not None else None
 
     async def routemanager_get_mode(self, routemanager_id: int) -> WorkerType:
         routemanager = self.__fetch_routemanager(routemanager_id)
@@ -586,13 +582,9 @@ class MappingManager(AbstractMappingManager):
                 # replace list name
                 area_settings['mon_ids_iv_raw'] = self.get_monlist(area_id)
 
-            spawns_known: bool = area.coords_spawns_known if area.mode == "mon_mitm" else True
             routecalc: Optional[SettingsRoutecalc] = await SettingsRoutecalcHelper \
                 .get(session, area.routecalc)
 
-            calc_type: str = area.route_calc_algorithm if area.mode == "pokestop" else "route"
-            including_stops: bool = area.including_stops if area.mode == "raids_mitm" else False
-            level_mode: bool = area.level if area.mode == "pokestop" else False
             # TODO: Refactor most of the code in here moving it to the factory
             # TODO: Use use_s2 ?
             route_manager = RouteManagerFactory.get_routemanager(db_wrapper=self.__db_wrapper,
@@ -609,9 +601,8 @@ class MappingManager(AbstractMappingManager):
                                                                  mon_ids_iv=self.get_monlist(area_id)
                                                                  )
             logger.info("Initializing area {}", area.name)
-            if area.mode not in ("iv_mitm", "idle") and calc_type != "routefree":
-                task = loop.create_task(route_manager.calculate_route(False))
-                areas_procs[area_id] = task
+            task = loop.create_task(route_manager.calculate_route(False))
+            areas_procs[area_id] = task
 
             routemanagers[area.area_id] = route_manager
         for area in areas_procs.keys():
@@ -775,7 +766,7 @@ class MappingManager(AbstractMappingManager):
             # Lastly, kill all strategies and update them accordingly
 
         else:
-            logger.debug("Acquiring lock to update mappings,full")
+            logger.debug2("Acquiring lock to update mappings,full")
             async with self.__mappings_mutex:
                 async with self.__db_wrapper as session, session:
                     self._areas = await self.__get_latest_areas(session)

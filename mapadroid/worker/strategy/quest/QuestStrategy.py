@@ -19,7 +19,6 @@ from mapadroid.db.DbWrapper import DbWrapper
 from mapadroid.db.helper.PokestopHelper import PokestopHelper
 from mapadroid.db.helper.TrsQuestHelper import TrsQuestHelper
 from mapadroid.db.helper.TrsStatusHelper import TrsStatusHelper
-from mapadroid.db.helper.TrsVisitedHelper import TrsVisitedHelper
 from mapadroid.db.model import SettingsAreaPokestop, Pokestop, SettingsWalkerarea, TrsStatus
 from mapadroid.mapping_manager.MappingManager import MappingManager
 from mapadroid.mapping_manager.MappingManagerDevicemappingKey import MappingManagerDevicemappingKey
@@ -361,7 +360,7 @@ class QuestStrategy(AbstractMitmBaseStrategy, ABC):
             try:
                 await self._ensure_stop_present(timestamp)
                 logger.info('Open Stop')
-                await self._handle_stop_enhanced(timestamp)
+                await self._handle_stop(timestamp)
             except AbortStopProcessingException as e:
                 # The stop cannot be processed for whatever reason.
                 # Stop processing the location.
@@ -402,9 +401,8 @@ class QuestStrategy(AbstractMitmBaseStrategy, ABC):
                                                                       300)
         self._always_cleanup: bool = False if area_settings.cleanup_every_spin == 0 else True
         self._delay_add = int(await self.get_devicesettings_value(MappingManagerDevicemappingKey.VPS_DELAY, 0))
-        self._enhanced_mode = await self.get_devicesettings_value(MappingManagerDevicemappingKey.ENHANCED_MODE_QUEST,
-                                                                  False)
-        self._ignore_spinned_stops: bool = area_settings.ignore_spinned_stops
+        self._ignore_spinned_stops: bool = area_settings.ignore_spinned_stops \
+            if area_settings.ignore_spinned_stops or area_settings.ignore_spinned_stops is None else False
 
     async def worker_specific_setup_stop(self):
         pass
@@ -625,13 +623,7 @@ class QuestStrategy(AbstractMitmBaseStrategy, ABC):
                     if await self._mapping_manager.routemanager_is_levelmode(
                             self._area_id) and self._ignore_spinned_stops and visited:
                         logger.info("Level mode: Stop already visited - skipping it")
-                        await TrsVisitedHelper.mark_visited(session, self._worker_state.origin,
-                                                            Location(latitude, longitude))
                         self._spinnable_data_failcount = 0
-                        try:
-                            await session.commit()
-                        except Exception as e:
-                            logger.warning("Failed mark pokestop visited: {}", e)
                         stop_types.add(PositionStopType.VISITED_STOP_IN_LEVEL_MODE_TO_IGNORE)
                         continue
 
@@ -807,7 +799,7 @@ class QuestStrategy(AbstractMitmBaseStrategy, ABC):
                                                                                   stop_location.lat,
                                                                                   stop_location.lng)
 
-    async def _handle_stop_enhanced(self, timestamp):
+    async def _handle_stop(self, timestamp):
         self._stop_process_time = math.floor(timestamp)
         # Stop will automatically be spun, thus we only need to check for fort search protos of the stop(s) we are
         # waiting for.
@@ -819,7 +811,7 @@ class QuestStrategy(AbstractMitmBaseStrategy, ABC):
         # TODO: Only try it once basically, then try clicking stop. Detect softban for sleeping?
         async with self._db_wrapper as session, session:
             while data_received != FortSearchResultTypes.QUEST and int(to) < 2:
-                logger.info('Waiting for stop to be spun (enhanced)')
+                logger.info('Waiting for stop to be spun')
                 type_received, data_received = await self._wait_for_data_after_moving(self._stop_process_time,
                                                                                       ProtoIdentifier.FORT_SEARCH,
                                                                                       timeout)
@@ -842,13 +834,7 @@ class QuestStrategy(AbstractMitmBaseStrategy, ABC):
                     if await self._mapping_manager.routemanager_is_levelmode(self._area_id):
                         logger.info("Saving visitation info...")
                         self._last_time_quest_received = math.floor(time.time())
-                        await TrsVisitedHelper.mark_visited(session, self._worker_state.origin,
-                                                            self._worker_state.current_location)
-                        try:
-                            await session.commit()
-                        except Exception as e:
-                            logger.warning("Failed marking stop as visited: {}", e)
-                        # This is leveling mode, it's faster to just ignore spin result and continue ?
+                        # This is leveling mode, it's faster to just ignore spin result and continue
                         break
 
                     if data_received == FortSearchResultTypes.COOLDOWN:
