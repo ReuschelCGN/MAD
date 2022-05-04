@@ -20,7 +20,10 @@ from mapadroid.worker.WorkerState import WorkerState
 from mapadroid.worker.WorkerType import WorkerType
 from mapadroid.worker.strategy.AbstractWorkerStrategy import AbstractWorkerStrategy
 from mapadroid.worker.strategy.NopStrategy import NopStrategy
-from mapadroid.worker.strategy.WorkerMitmStrategy import WorkerMitmStrategy
+from mapadroid.worker.strategy.plain.WorkerInitStrategy import WorkerInitStrategy
+from mapadroid.worker.strategy.plain.WorkerMonIvStrategy import WorkerMonIvStrategy
+from mapadroid.worker.strategy.plain.WorkerMonMitmStrategy import WorkerMonMitmStrategy
+from mapadroid.worker.strategy.plain.WorkerRaidsMitmStrategy import WorkerRaidsStrategy
 from mapadroid.worker.strategy.quest.ARQuestLayerStrategy import ARQuestLayerStrategy
 from mapadroid.worker.strategy.quest.NonARQuestLayerStrategy import NonARQuestLayerStrategy
 
@@ -105,8 +108,8 @@ class StrategyFactory:
                                    pogo_windows_handler=self.__pogo_windows,
                                    walker=walker_settings,
                                    worker_state=worker_state)
-        elif worker_type in [WorkerType.IV_MITM, WorkerType.MON_MITM, WorkerType.RAID_MITM]:
-            strategy = WorkerMitmStrategy(area_id=area_id,
+        elif worker_type == WorkerType.INIT:
+            strategy = WorkerInitStrategy(area_id=area_id,
                                           communicator=communicator, mapping_manager=self.__mapping_manager,
                                           db_wrapper=self.__db_wrapper,
                                           word_to_screen_matching=word_to_screen_matching,
@@ -115,7 +118,37 @@ class StrategyFactory:
                                           worker_state=worker_state,
                                           mitm_mapper=self.__mitm_mapper,
                                           stats_handler=self.__stats_handler)
-        elif worker_type in [WorkerType.STOPS]:
+        elif worker_type == WorkerType.IV_MITM:
+            strategy = WorkerMonIvStrategy(area_id=area_id,
+                                           communicator=communicator, mapping_manager=self.__mapping_manager,
+                                           db_wrapper=self.__db_wrapper,
+                                           word_to_screen_matching=word_to_screen_matching,
+                                           pogo_windows_handler=self.__pogo_windows,
+                                           walker=walker_settings,
+                                           worker_state=worker_state,
+                                           mitm_mapper=self.__mitm_mapper,
+                                           stats_handler=self.__stats_handler)
+        elif worker_type == WorkerType.MON_MITM:
+            strategy = WorkerMonMitmStrategy(area_id=area_id,
+                                             communicator=communicator, mapping_manager=self.__mapping_manager,
+                                             db_wrapper=self.__db_wrapper,
+                                             word_to_screen_matching=word_to_screen_matching,
+                                             pogo_windows_handler=self.__pogo_windows,
+                                             walker=walker_settings,
+                                             worker_state=worker_state,
+                                             mitm_mapper=self.__mitm_mapper,
+                                             stats_handler=self.__stats_handler)
+        elif worker_type == WorkerType.RAID_MITM:
+            strategy = WorkerRaidsStrategy(area_id=area_id,
+                                           communicator=communicator, mapping_manager=self.__mapping_manager,
+                                           db_wrapper=self.__db_wrapper,
+                                           word_to_screen_matching=word_to_screen_matching,
+                                           pogo_windows_handler=self.__pogo_windows,
+                                           walker=walker_settings,
+                                           worker_state=worker_state,
+                                           mitm_mapper=self.__mitm_mapper,
+                                           stats_handler=self.__stats_handler)
+        elif worker_type == WorkerType.STOPS:
             layer_to_scan: Optional[int] = await self.__mapping_manager.routemanager_get_quest_layer_to_scan(area_id)
             if not await self.__mapping_manager.routemanager_is_levelmode(area_id):
                 quest_layer: QuestLayer = QuestLayer(layer_to_scan)
@@ -196,7 +229,9 @@ class StrategyFactory:
         # preckeck walker setting using the geofence_included's first location
         location = await self.__area_middle_of_fence(walker_settings)
         loop_exit = False
-        while not pre_check_value(walker_settings, self.__event.get_current_event_id(), location) \
+        while not pre_check_value(walker_settings, self.__event.get_current_event_id(), location,
+                                  len(await self.__mapping_manager.routemanager_get_registered_workers(
+                                      walker_settings.area_id))) \
                 and client_mapping.walker_area_index < len(client_mapping.walker_areas):
             logger.info('not using area {} - Walkervalue out of range',
                         await self.__mapping_manager.routemanager_get_name(walker_settings.area_id))
@@ -211,7 +246,7 @@ class StrategyFactory:
                 await self.__mapping_manager.set_devicesetting_value_of(origin,
                                                                         MappingManagerDevicemappingKey.WALKER_AREA_INDEX,
                                                                         client_mapping.walker_area_index)
-            walker_settings = client_mapping.walker_areas[client_mapping.walker_area_index]
+            walker_settings: SettingsWalkerarea = client_mapping.walker_areas[client_mapping.walker_area_index]
             location = await self.__area_middle_of_fence(walker_settings)
 
         logger.debug("Checking walker_area_index length")

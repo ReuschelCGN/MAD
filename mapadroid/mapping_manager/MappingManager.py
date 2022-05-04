@@ -422,9 +422,9 @@ class MappingManager(AbstractMappingManager):
         routemanager = self.__fetch_routemanager(routemanager_id)
         return routemanager.redo_stop_immediately(worker_name, lat, lon) if routemanager is not None else False
 
-    async def routemanager_get_registered_workers(self, routemanager_id: int) -> Optional[Set[str]]:
+    async def routemanager_get_registered_workers(self, routemanager_id: int) -> Set[str]:
         routemanager = self.__fetch_routemanager(routemanager_id)
-        return routemanager.get_registered_workers() if routemanager is not None else None
+        return routemanager.get_registered_workers() if routemanager is not None else set()
 
     async def routemanager_get_ids_iv(self, routemanager_id: int) -> Optional[List[int]]:
         routemanager = self.__fetch_routemanager(routemanager_id)
@@ -491,26 +491,25 @@ class MappingManager(AbstractMappingManager):
         routemanager = self.__fetch_routemanager(routemanager_id)
         return routemanager.get_max_radius() if routemanager is not None else None
 
-    async def routemanager_recalculate(self, routemanager_id: int):
-        successful = False
+    async def routemanager_recalculate(self, routemanager_id: int) -> bool:
+        """
+        :returns: Whether the recalculation was started or not
+        """
+        routemanager = self.__fetch_routemanager(routemanager_id)
+        if not routemanager:
+            logger.error("Routemanager {} is not loaded to recalculate a route.", routemanager_id)
+            return False
         try:
-            routemanager = self.__fetch_routemanager(routemanager_id)
-            if not routemanager:
-                return False
-            if routemanager._check_routepools_thread:
-                # TODO: ??
-                successful = True
-            else:
-                await routemanager.start_routemanager()
-                successful = True
+            await routemanager.start_routemanager()
             args = (False, True)
             kwargs = {
             }
             loop = asyncio.get_running_loop()
             loop.create_task(coro=routemanager.calculate_route(*args, **kwargs))
+            return True
         except Exception:
             logger.opt(exception=True).error('Unable to start recalculation')
-        return successful
+            return False
 
     async def __get_latest_geofence_helpers(self, session: AsyncSession) -> Dict[int, GeofenceHelper]:
         geofences: Dict[int, SettingsGeofence] = await SettingsGeofenceHelper.get_all_mapped(session,
