@@ -94,7 +94,6 @@ def screendetection_get_type_internal(image,
 def check_pogo_mainscreen(filename, identifier) -> bool:
     with logger.contextualize(identifier=identifier):
         logger.debug("__internal_check_pogo_mainscreen: Checking close except nearby with: file {}", filename)
-        mainscreen = 0
         try:
             screenshot_read = cv2.imread(filename)
         except Exception:
@@ -120,15 +119,20 @@ def check_pogo_mainscreen(filename, identifier) -> bool:
                                    minRadius=radius_min,
                                    maxRadius=radius_max)
         del canny
+        avatar_likely_present = False
+        total_amount_of_circles = 0
         if circles is not None:
             circles = np.round(circles[0, :]).astype("int")
+            total_amount_of_circles = len(circles)
             for (pos_x, _, _) in circles:
                 if pos_x < width_ - width_ / 3:
-                    mainscreen += 1
+                    avatar_likely_present = True
         del circles
-        if mainscreen > 0:
+        if avatar_likely_present and total_amount_of_circles == 1:
             logger.debug("Found avatar.")
             return True
+        logger.warning("Not on mainscreen (avatar {}, amount of circles: {}", avatar_likely_present,
+                       total_amount_of_circles)
         return False
 
 

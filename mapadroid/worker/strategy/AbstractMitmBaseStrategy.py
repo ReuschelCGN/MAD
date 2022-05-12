@@ -118,12 +118,13 @@ class AbstractMitmBaseStrategy(AbstractWorkerStrategy, ABC):
 
         logger.info("Worker starting actual work")
         try:
-            await self.turn_screen_on_and_start_pogo()
             # register worker  in routemanager
             logger.info("Try to register in Routemanager {}",
                         await self._mapping_manager.routemanager_get_name(self._area_id))
             await self._mapping_manager.register_worker_to_routemanager(self._area_id,
                                                                         self._worker_state.origin)
+            await self.turn_screen_on_and_start_pogo()
+
             await self._update_screen_size()
         except WebsocketWorkerRemovedException:
             logger.error("Timeout during init of worker")
@@ -131,7 +132,7 @@ class AbstractMitmBaseStrategy(AbstractWorkerStrategy, ABC):
 
     async def _wait_for_data(self, timestamp: float = None,
                              proto_to_wait_for: ProtoIdentifier = ProtoIdentifier.GMO, timeout=None) \
-            -> Tuple[ReceivedType, Optional[Union[dict, FortSearchResultTypes]]]:
+            -> Tuple[ReceivedType, Optional[Union[dict, FortSearchResultTypes]], float]:
         key = str(proto_to_wait_for.value)
         if timestamp is None:
             timestamp = time.time()
@@ -195,7 +196,7 @@ class AbstractMitmBaseStrategy(AbstractWorkerStrategy, ABC):
         loop.create_task(self.worker_stats())
         # TODO: Rather freeze the state that is to be submitted and pass it to another task for performance reasons
         # await self.worker_stats()
-        return type_of_data_returned, data
+        return type_of_data_returned, data, last_time_received
 
     async def _request_data(self, data, key, proto_to_wait_for, timestamp, type_of_data_returned):
         latest_location: Optional[Location] = await self._mitm_mapper.get_last_known_location(

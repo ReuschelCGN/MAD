@@ -318,11 +318,10 @@ class AbstractWorkerStrategy(ABC):
                     if self._worker_state.same_screen_count > 4 or not await self._restart_pogo():
                         self._worker_state.same_screen_count = 0
                         logger.warning("Restarting PoGo failed - reboot device")
-                        self._worker_state.login_error_count = 0
                         await self._reboot()
                     break
             elif self._worker_state.last_screen_type != screen_type:
-                self._worker_state.ame_screen_count = 0
+                self._worker_state.same_screen_count = 0
 
             # now handle all screens that may not have been handled by detect_screentype since that only clicks around
             # so any clearing data whatsoever happens here (for now)
@@ -443,6 +442,8 @@ class AbstractWorkerStrategy(ABC):
                     logger.warning("Failed saving restart-status of {}: {}", self._worker_state.origin, e)
         self._worker_state.reboot_count = 0
         self._worker_state.restart_count = 0
+        self._worker_state.login_error_count = 0
+        self._worker_state.same_screen_count = 0
         return start_result
 
     async def _restart_pogo(self, clear_cache=True):

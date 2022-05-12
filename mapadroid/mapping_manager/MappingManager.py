@@ -55,7 +55,7 @@ mode_mapping = {
     "pokestops": {
         "s2_cell_level": 13,
         "range": 70,  # stop interaction radius is 80m
-        "max_count": 1
+        "max_count": 3
     },
     "iv_mitm": {
         "range": 67,
@@ -155,6 +155,9 @@ class MappingManager(AbstractMappingManager):
     async def is_device_active(self, device_id: int) -> bool:
         return device_id not in self.__paused_devices
 
+    async def get_paused_devices(self) -> Set[int]:
+        return set(self.__paused_devices)
+
     async def get_devicemappings_of(self, device_name: str) -> Optional[DeviceMappingsEntry]:
         # Async method since we may move the logic to a different host
         return self._devicemappings.get(device_name, None)
@@ -250,8 +253,6 @@ class MappingManager(AbstractMappingManager):
         elif key == MappingManagerDevicemappingKey.LAST_QUESTCLEAR_TIME:
             return devicemapping_entry.last_questclear_time
         # DB stuff
-        elif key == MappingManagerDevicemappingKey.ENHANCED_MODE_QUEST:
-            return devicemapping_entry.pool_settings.enhanced_mode_quest if devicemapping_entry.pool_settings and devicemapping_entry.pool_settings.enhanced_mode_quest else devicemapping_entry.device_settings.enhanced_mode_quest
         elif key == MappingManagerDevicemappingKey.SCREENSHOT_Y_OFFSET:
             return devicemapping_entry.pool_settings.screenshot_y_offset if devicemapping_entry.pool_settings and devicemapping_entry.pool_settings.screenshot_y_offset else devicemapping_entry.device_settings.screenshot_y_offset
         elif key == MappingManagerDevicemappingKey.SCREENSHOT_X_OFFSET:
@@ -354,6 +355,8 @@ class MappingManager(AbstractMappingManager):
 
     def __fetch_routemanager(self, routemanager_id: int) -> Optional[RouteManagerBase]:
         routemanager: RouteManagerBase = self._routemanagers.get(routemanager_id, None)
+        if not routemanager:
+            logger.debug2("No routemanager found with ID {}", routemanager_id)
         return routemanager
 
     async def routemanager_present(self, routemanager_id: int) -> bool:
