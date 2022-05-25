@@ -97,6 +97,12 @@ class Communicator(AbstractCommunicator):
     def magisk_on(self) -> None:
         self.passthrough("su -c magiskhide --enable")
 
+    def grant_pogo_permissions(self) -> None:
+        self.passthrough("pm grant com.nianticlabs.pokemongo android.permission.ACCESS_FINE_LOCATION && "
+                         "pm grant com.nianticlabs.pokemongo android.permission.ACCESS_COARSE_LOCATION && "
+                         "pm grant com.nianticlabs.pokemongo android.permission.CAMERA && "
+                         "pm grant com.nianticlabs.pokemongo android.permission.GET_ACCOUNTS")
+
     def turn_screen_on(self) -> bool:
         return self.__run_and_ok("more screen on\r\n", self.__command_timeout)
 
