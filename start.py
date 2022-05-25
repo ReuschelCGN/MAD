@@ -14,25 +14,23 @@ from mapadroid.data_handler.mitm_data.AbstractMitmMapper import AbstractMitmMapp
 from mapadroid.data_handler.mitm_data.MitmMapperType import MitmMapperType
 from mapadroid.data_handler.mitm_data.RedisMitmMapper import RedisMitmMapper
 from mapadroid.data_handler.stats.AbstractStatsHandler import AbstractStatsHandler
-from mapadroid.db.DbCleanup import DbCleanup
 from mapadroid.db.DbFactory import DbFactory
 from mapadroid.mad_apk import get_storage_obj
 from mapadroid.madmin.madmin import MADmin
 from mapadroid.mapping_manager.MappingManager import MappingManager
 from mapadroid.mapping_manager.MappingManagerServer import MappingManagerServer
-from mapadroid.mitm_receiver.MITMReceiver import MITMReceiver
 from mapadroid.mitm_receiver.MitmDataProcessorManager import \
     MitmDataProcessorManager
+from mapadroid.mitm_receiver.MITMReceiver import MITMReceiver
 from mapadroid.ocr.pogoWindows import PogoWindows
 from mapadroid.plugins.pluginBase import PluginCollection
 from mapadroid.utils.EnvironmentUtil import setup_loggers, setup_runtime
-from mapadroid.utils.SystemStatsUtil import get_system_infos
-from mapadroid.utils.logging import (LoggerEnums, get_logger,
-                                     init_logging)
+from mapadroid.utils.logging import LoggerEnums, get_logger, init_logging
 from mapadroid.utils.madGlobals import application_args, terminate_mad
 from mapadroid.utils.pogoevent import PogoEvent
 from mapadroid.utils.questGen import QuestGen
 from mapadroid.utils.rarity import Rarity
+from mapadroid.utils.SystemStatsUtil import get_system_infos
 from mapadroid.utils.updater import DeviceUpdater
 from mapadroid.webhook.webhookworker import WebhookWorker
 from mapadroid.websocket.WebsocketServer import WebsocketServer
@@ -154,7 +152,7 @@ async def start():
             webhook_task: Task = await webhook_worker.start()
             # TODO: Stop webhook_task properly
 
-    madmin = MADmin(db_wrapper, ws_server, mapping_manager, device_updater, jobstatus, storage_elem,
+    madmin = MADmin(application_args, db_wrapper, ws_server, mapping_manager, device_updater, jobstatus, storage_elem,
                     quest_gen)
 
     # starting plugin system
@@ -187,9 +185,6 @@ async def start():
         logger.info("Starting statistics collector")
         loop = asyncio.get_running_loop()
         t_usage = loop.create_task(get_system_infos(db_wrapper))
-
-    db_cleanup: DbCleanup = DbCleanup(db_wrapper)
-    await db_cleanup.start()
     logger.info("MAD is now running.....")
     exit_code = 0
     try:
@@ -243,6 +238,7 @@ async def start():
 if __name__ == "__main__":
     global application_args
     os.environ['LANGUAGE'] = application_args.language
+    os.environ['OMP_THREAD_LIMIT'] = "1"
     init_logging(application_args)
     setup_loggers()
     logger = get_logger(LoggerEnums.system)
