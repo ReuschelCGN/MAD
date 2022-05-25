@@ -150,7 +150,7 @@ class WebhookWorker:
         return ret
 
     def __construct_quest_payload(self, quest):
-        if self.__args.quest_webhook_flavor == "default":  # used by PokeAlarm
+        if self.__args.quest_webhook_flavor == "default":
             return {
                 "pokestop_id": quest["pokestop_id"],
                 "latitude": quest["latitude"],
@@ -293,6 +293,7 @@ class WebhookWorker:
 
             quest_condition.append(a_quest_condition)
 
+        # Alternativ type "poracle" is Pokealarm and Poracle compatible.
         return {
             "pokestop_id": quest["pokestop_id"],
             "template": quest["quest_template"],
@@ -314,7 +315,6 @@ class WebhookWorker:
             "timestamp": quest["timestamp"],
             "quest_reward_type": quest["quest_reward_type"],
             "quest_reward_type_raw": quest["quest_reward_type_raw"],
-            "quest_reward_raw": quest['quest_reward_raw'].replace("'", '"').lower(),
             "quest_target": quest["quest_target"],
             "pokemon_id": int(quest["pokemon_id"]),
             "pokemon_form": int(quest.get("pokemon_form", '0')),
@@ -509,7 +509,10 @@ class WebhookWorker:
 
             if mon["weather_boosted_condition"] is not None \
                and mon["weather_boosted_condition"] > 0:
-                mon_payload["weather"] = mon["weather_boosted_condition"]
+                if self.__args.quest_webhook_flavor == "default":
+                    mon_payload["boosted_weather"] = mon["weather_boosted_condition"]
+                if self.__args.quest_webhook_flavor == "poracle":
+                    mon_payload["weather"] = mon["weather_boosted_condition"]
 
             if mon["seen_type"] in ("nearby_stop", "lure_wild", "lure_encounter"):
                 mon_payload["pokestop_id"] = mon["fort_id"]
