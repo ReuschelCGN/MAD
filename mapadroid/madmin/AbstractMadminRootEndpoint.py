@@ -1,8 +1,7 @@
 import asyncio
 import json
 from abc import ABC
-from functools import wraps
-from typing import Any, Optional, List, Dict
+from typing import Any, Dict, List, Optional
 
 from aiohttp import web
 from aiohttp.abc import Request
@@ -16,26 +15,12 @@ from mapadroid.db.model import Base
 from mapadroid.mad_apk.abstract_apk_storage import AbstractAPKStorage
 from mapadroid.madmin import apiException
 from mapadroid.mapping_manager.MappingManager import MappingManager
-from mapadroid.utils.aiohttp import get_forwarded_path, add_prefix_to_url
 from mapadroid.utils.json_encoder import MADEncoder
-from mapadroid.utils.madGlobals import WebsocketWorkerTimeoutException, WebsocketWorkerConnectionClosedException
+from mapadroid.utils.madGlobals import (
+    WebsocketWorkerConnectionClosedException, WebsocketWorkerTimeoutException)
 from mapadroid.utils.questGen import QuestGen
 from mapadroid.utils.updater import DeviceUpdater
 from mapadroid.websocket.WebsocketServer import WebsocketServer
-
-
-FORWARDED_PATH_KEY = "forwarded_path"
-
-
-def expand_context() -> Any:
-    def wrapper(func):
-        @wraps(func)
-        async def wrapped(self: AbstractMadminRootEndpoint, *args, **kwargs):
-            passed_to_template: Dict = await func(self, *args, **kwargs)
-            passed_to_template[FORWARDED_PATH_KEY] = get_forwarded_path(self.request.headers)
-            return passed_to_template
-        return wrapped
-    return wrapper
 
 
 class AbstractMadminRootEndpoint(web.View, ABC):
@@ -63,7 +48,7 @@ class AbstractMadminRootEndpoint(web.View, ABC):
         try:
             logger.debug("Waiting for response to {}", self.request.url)
             response = await super()._iter()
-            logger.success("Got response to {}", self.request.url)
+            logger.debug("Got response to {}", self.request.url)
             if self._commit_trigger:
                 logger.debug("Awaiting commit")
                 await session.commit()
@@ -194,7 +179,4 @@ class AbstractMadminRootEndpoint(web.View, ABC):
             dynamic_path = {}
         if query is None:
             query = {}
-        forwarded_path: Optional[str] = get_forwarded_path(self.request.headers)
-        path_constructed = self.request.app.router[path_name].url_for(**dynamic_path).with_query(query)
-        final_url = add_prefix_to_url(forwarded_path, path_constructed)
-        return final_url
+        return self.request.app.router[path_name].url_for(**dynamic_path).with_query(query)
