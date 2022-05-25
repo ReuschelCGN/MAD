@@ -39,10 +39,17 @@ class WorkerMITM(MITMBase):
 
     def _post_move_location_routine(self, timestamp):
         # TODO: pass the appropriate proto number if IV?
-        type_received, data = self._wait_for_data(timestamp)
-        if type_received != LatestReceivedType.GMO:
-            self.logger.warning("Worker failed to retrieve proper data at {}, {}. Worker will continue with "
-                                "the next location", self.current_location.lat, self.current_location.lng)
+        routemanager_mode = self._mapping_manager.routemanager_get_mode(self._routemanager_name)
+        if routemanager_mode == "raids_mitm":
+            waitfor = ProtoIdentifier.GMO
+            received = LatestReceivedType.GMO
+        else:
+            waitfor = ProtoIdentifier.ENCOUNTER
+            received = LatestReceivedType.MON
+        type_received, data = self._wait_for_data(timestamp, proto_to_wait_for=waitfor)
+        if type_received != received:
+            self.logger.warning("Worker failed to retrieve {} data at {}, {}. Worker will continue with the next"
+                                "location", received.name, self.current_location.lat, self.current_location.lng)
 
     def _move_to_location(self):
         distance, routemanager_settings = self._get_route_manager_settings_and_distance_to_current_location()
@@ -114,7 +121,7 @@ class WorkerMITM(MITMBase):
             # worker has to sleep, just empty out the settings...
             ids_iv = []
             scanmode = "nothing"
-        elif routemanager_mode == "mon_mitm":
+        elif routemanager_mode == "mon_mitm" or routemanager_mode == "iv_mitm":
             scanmode = "mons"
             routemanager_settings = self._mapping_manager.routemanager_get_settings(self._routemanager_name)
             if routemanager_settings is not None:
@@ -124,9 +131,6 @@ class WorkerMITM(MITMBase):
             routemanager_settings = self._mapping_manager.routemanager_get_settings(self._routemanager_name)
             if routemanager_settings is not None:
                 ids_iv = self._mapping_manager.get_monlist(self._routemanager_name)
-        elif routemanager_mode == "iv_mitm":
-            scanmode = "ivs"
-            ids_iv = self._mapping_manager.routemanager_get_encounter_ids_left(self._routemanager_name)
         else:
             # TODO: should we throw an exception here?
             ids_iv = []
@@ -170,6 +174,10 @@ class WorkerMITM(MITMBase):
         type_of_data_found: LatestReceivedType = LatestReceivedType.UNDEFINED
         data_found: Optional[object] = None
         latest_proto_entry = latest_data.get(proto_to_wait_for.value, None)
+        if ProtoIdentifier.ENCOUNTER.value in latest_data:
+            if latest_data[ProtoIdentifier.ENCOUNTER.value].get('timestamp', 0) >= timestamp:
+                type_of_data_found = LatestReceivedType.MON
+                return type_of_data_found, data_found
         if not latest_proto_entry:
             self.logger.debug("No data linked to the requested proto since MAD started.")
             return type_of_data_found, data_found
