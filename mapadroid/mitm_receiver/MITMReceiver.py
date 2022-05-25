@@ -107,6 +107,7 @@ class EndpointAction(object):
                 abort = True
         elif 'download' in request.url:
             auth = request.headers.get('Authorization', None)
+            origin_logger.info("Download requested from {} via {}", request.remote_addr, request.url)
             if not check_auth(logger, auth, self.application_args, self.mapping_manager.get_auths()):
                 origin_logger.warning("Unauthorized attempt to POST from {}", request.remote_addr)
                 self.response = Response(status=403, headers={})
@@ -271,6 +272,12 @@ class MITMReceiver(Process):
 
         if proto_type not in (106, 102, 101, 104, 4, 156, 145):
             # trash protos - ignoring
+            return
+        elif proto_type == 106 and not data["payload"].get("cells", []):
+            origin_logger.debug("Ignoring apparently empty GMO")
+            return
+        elif proto_type == 102 and not data["payload"].get("status", None) == 1:
+            origin_logger.warning("Encounter with status {} being ignored", data["payload"].get("status", None))
             return
 
         timestamp: float = data.get("timestamp", int(time.time()))
