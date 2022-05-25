@@ -37,7 +37,7 @@ class ClearThreadTasks(Enum):
     IDLE = 0
     BOX = 1
     QUEST = 2
-
+    QUEST_WITH_FINISHED = 3
 
 class PositionStopType(Enum):
     GMO_NOT_AVAILABLE = 0,
@@ -135,7 +135,7 @@ class WorkerQuests(MITMBase):
         else:
             # initial cleanup old quests
             if not self._init:
-                self.clear_thread_task = ClearThreadTasks.QUEST
+                self.clear_thread_task = ClearThreadTasks.QUEST_WITH_FINISHED
 
     def _health_check(self):
         """
@@ -312,7 +312,11 @@ class WorkerQuests(MITMBase):
                         self.logger.info("Clearing quest")
                         self._clear_quests(self._delay_add)
                         self.clear_thread_task = ClearThreadTasks.IDLE
-                    time.sleep(1)
+                    elif self.clear_thread_task == ClearThreadTasks.QUEST_WITH_FINISHED and not self._level_mode:
+                        self.logger.info("Clearing quests and checking for finished quests")
+                        self._clear_quests(self._delay_add, check_finished=True)
+                        self.clear_thread_task = ClearThreadTasks.IDLE
+                        time.sleep(1)
                 except (InternalStopWorkerException, WebsocketWorkerRemovedException,
                         WebsocketWorkerTimeoutException, WebsocketWorkerConnectionClosedException):
                     self.logger.error("Worker removed while clearing quest/box")
@@ -328,11 +332,11 @@ class WorkerQuests(MITMBase):
         self._mapping_manager.routemanager_set_worker_sleeping(self._routemanager_name, self._origin, 300)
         not_allow = ('Gift', 'Geschenk', 'Glücksei', 'Glucks-Ei', 'Glücks-Ei', 'Lucky Egg', 'CEuf Chance',
                      'Cadeau', 'Appareil photo', 'Wunderbox', 'Mystery Box', 'Boîte Mystère', 'Premium',
-                     'Raid', 'Teil',
+                     'Raid', 'Teil', 'Sonderbonbon', 'Rare Candy',
                      'Élément', 'mystérieux', 'Mysterious', 'Component', 'Mysteriöses', 'Remote', 'Fern',
                      'Fern-Raid-Pass', 'Pass', 'Passe', 'distance', 'Remote Raid', 'Remote Pass',
                      'Remote Raid Pass', 'Battle Pass', 'Premium Battle Pass', 'Premium Battle', 'Sticker',
-                     'Ticket', 'Postcard Book', 'Postkartenbuch', 'Kamera')
+                     'Stickers', 'Ticket', 'Postcard Book', 'Postkartenbuch', 'Kamera', 'Camera')
         x, y = self._resocalc.get_close_main_button_coords(self)
         self._communicator.click(int(x), int(y))
         time.sleep(1 + int(delayadd))
@@ -452,6 +456,9 @@ class WorkerQuests(MITMBase):
         scanmode = "quests"
         injected_settings["scanmode"] = scanmode
         ids_iv: List[int] = []
+        routemanager_settings = self._mapping_manager.routemanager_get_settings(self._routemanager_name)
+        if routemanager_settings is not None:
+            ids_iv = self._mapping_manager.get_monlist(self._routemanager_name)
         self._encounter_ids = {}
         self._mitm_mapper.update_latest(origin=self._origin, key="ids_encountered", values_dict=self._encounter_ids)
         self._mitm_mapper.update_latest(origin=self._origin, key="ids_iv", values_dict=ids_iv)
@@ -571,14 +578,16 @@ class WorkerQuests(MITMBase):
 
         recheck_count = 0
         while stop_type in (PositionStopType.GMO_NOT_AVAILABLE, PositionStopType.GMO_EMPTY,
-                            PositionStopType.NO_FORT) and not recheck_count > 2:
+                            PositionStopType.NO_FORT) and not recheck_count > 5:
             recheck_count += 1
-            self.logger.info("Wait for new data to check the stop again ... (attempt {})", recheck_count + 1)
-            type_received, proto_entry = self._wait_for_data(timestamp=time.time(),
+            self.logger.info("Wait for new data to check the stop again ... ({}, attempt {})", stop_type,
+                             recheck_count + 1)
+            repeat_timestamp = time.time()
+            type_received, proto_entry = self._wait_for_data(timestamp=repeat_timestamp,
                                                              proto_to_wait_for=ProtoIdentifier.GMO,
                                                              timeout=35)
             if type_received != LatestReceivedType.UNDEFINED:
-                stop_type = self._current_position_has_spinnable_stop(timestamp)
+                stop_type = self._current_position_has_spinnable_stop(repeat_timestamp)
 
         if not PositionStopType.type_contains_stop_at_all(stop_type):
             self.logger.info("Location {}, {} considered to be ignored in the next round due to failed "
@@ -627,7 +636,6 @@ class WorkerQuests(MITMBase):
                     self._check_pogo_close(takescreen=True)
 
             to += 1
-
         if to > 2:
             self._open_pokestop_failcount += 1
             self.logger.warning(f"Giving up on this stop after 3 failures in open_pokestop loop - failcount is "
@@ -642,9 +650,8 @@ class WorkerQuests(MITMBase):
             self.logger.success("Seems like open_pokestop loop was ok - reset failcount of "
                                 f"{self._open_pokestop_failcount} to 0")
             self._open_pokestop_failcount = 0
-
         return type_received
-
+        
     # TODO: handle https://github.com/Furtif/POGOProtos/blob/master/src/POGOProtos/Networking/Responses
     #  /FortSearchResponse.proto#L12
     def _handle_stop(self, timestamp: float):
@@ -736,7 +743,7 @@ class WorkerQuests(MITMBase):
                     if not reached_main_menu:
                         if not self._restart_pogo(mitm_mapper=self._mitm_mapper):
                             raise InternalStopWorkerException
-                    self.clear_thread_task = ClearThreadTasks.QUEST
+                    self.clear_thread_task = ClearThreadTasks.QUEST_WITH_FINISHED
                     self._clear_quest_counter = 0
                 else:
                     self.logger.warning(f"Failed getting quest but got items {self._got_items_failcount} times in a "
