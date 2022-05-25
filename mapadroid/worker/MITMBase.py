@@ -111,8 +111,8 @@ class MITMBase(WorkerBase):
             timeout = self.get_devicesettings_value("mitm_wait_timeout", FALLBACK_MITM_WAIT_TIMEOUT)
 
         # let's fetch the latest data to add the offset to timeout (in case device and server times are off...)
-        self.logger.info('Waiting for data after {}',
-                         datetime.fromtimestamp(timestamp))
+        self.logger.info('Waiting for {} data after {}',
+                         proto_to_wait_for.name, datetime.fromtimestamp(timestamp))
         position_type = self._mapping_manager.routemanager_get_position_type(self._routemanager_name,
                                                                              self._origin)
         type_of_data_returned = LatestReceivedType.UNDEFINED
@@ -284,11 +284,23 @@ class MITMBase(WorkerBase):
                 return False
             self.logger.info("Didn't receive any data yet. (Retry count: {}/{})", self._not_injected_count,
                              injection_thresh_reboot)
-            if (self._not_injected_count != 0 and self._not_injected_count % window_check_frequency == 0) \
+            if self._not_injected_count % window_check_frequency == 0 \
                     and not self._stop_worker_event.is_set():
                 self.logger.info("Retry check_windows while waiting for injection at count {}",
                                  self._not_injected_count)
-                self._ensure_pogo_topmost()
+                if self._ensure_pogo_topmost() and self._not_injected_count > 0 and \
+                        self._not_injected_count == int(injection_thresh_reboot / 2):
+                    self.logger.info("Pogo running without apparent issues, but no data incoming halfway to the "
+                                     "reboot threshold - use worker specific setup stop/start")
+                    self._worker_specific_setup_stop()
+                    self.logger.info("Stopped, sleep 5 ...")
+                    time.sleep(5)
+                    self._worker_specific_setup_start()
+                    self.logger.info("Started, sleep 10 ...")
+                    time.sleep(10)
+                    self.logger.info("Cycle back to pogo ...")
+                    self._communicator.start_app("com.nianticlabs.pokemongo")
+                    time.sleep(5)
             self._not_injected_count += 1
             wait_time = 0
             while wait_time < 20:
@@ -349,13 +361,75 @@ class MITMBase(WorkerBase):
         self.logger.debug('Moving {} meters to the next position', round(distance, 2))
         return distance, routemanager_settings
 
-    def _clear_quests(self, delayadd, openmenu=True):
+    def _clear_quests(self, delayadd, openmenu=True, check_finished=False, looped=False):
         self.logger.debug('{_clear_quests} called')
+
+        reached_main_menu = self._check_pogo_main_screen(10, True)
+        if not reached_main_menu:
+            if not self._restart_pogo(mitm_mapper=self._mitm_mapper):
+                # TODO: put in loop, count up for a reboot ;)
+                raise InternalStopWorkerException
+
         if openmenu:
             x, y = self._resocalc.get_coords_quest_menu(self)
             self._communicator.click(int(x), int(y))
             self.logger.debug("_clear_quests Open menu: {}, {}", int(x), int(y))
             time.sleep(6 + int(delayadd))
+
+        if check_finished:
+            x, y = self._resocalc.get_quest_listview(self)
+            self._communicator.click(int(x), int(y))
+            self.logger.debug("_clear_quests Open field: {}, {}", int(x), int(y))
+            time.sleep(4 + int(delayadd))
+
+            cleaned_count: int = 0
+            if looped:
+                self.logger.info("Retry clearing finished quests after retrieving breakthrough reward")
+            else:
+                self.logger.info("Check for finished quests")
+
+            questcheck = self._check_finished_quest(full_screen=True)
+            if not questcheck:
+                self.logger.warning("Quest check OCR failed. Move on.")
+            else:
+                if questcheck["blocked"]:
+                    if not questcheck["breakthrough"] and not looped:
+                        self.logger.warning("Found blocked quest but no breakthrough reward - likely flawed OCR"
+                                            "result. This can be ignored if not happening repeatedly.")
+                    elif not looped:
+                        self.logger.warning("Found a blocked quest - need to try to cleanup breakthrough!")
+                        self._communicator.click(questcheck["breakthrough"][0]['x'],
+                                                 questcheck["breakthrough"][0]['y'])
+                        time.sleep(20)
+                        self._communicator.back_button()
+                        time.sleep(5)
+                        self._clear_quests(delayadd, openmenu=False, check_finished=True, looped=True)
+                        return
+                    else:
+                        self.logger.error("Unable to clean breakthrough - the reward pokemon needs to be caught!")
+                elif questcheck["breakthrough"]:
+                    self.logger.warning("Breakthrough reward found - consider catching it soon!")
+
+                if not questcheck["finished"]:
+                    self.logger.info("Unable to find any finished quests.")
+                for quest in questcheck["finished"]:
+                    cleaned_count += 1
+                    self.logger.info("Retrieving finished quest #{}", cleaned_count)
+                    self._communicator.click(quest['x'], quest['y'])
+                    time.sleep(15)
+                    self._communicator.back_button()
+                    time.sleep(5)
+
+                    # back button throws us to the map, return to the quest menu if more quests to be cleared
+                    # otherwise just return without trying to click the close button
+                    if len(questcheck["finished"]) > cleaned_count:
+                        x, y = self._resocalc.get_coords_quest_menu(self)
+                        self._communicator.click(int(x), int(y))
+                        self.logger.debug("_clear_quests Open menu again: {}, {}", int(x), int(y))
+                        time.sleep(6 + int(delayadd))
+                    else:
+                        self.logger.success("Done clearing finished quests!")
+                        return
 
         x, y = self._resocalc.get_close_main_button_coords(self)
         self._communicator.click(int(x), int(y))
