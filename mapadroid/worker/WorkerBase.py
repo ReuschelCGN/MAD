@@ -252,6 +252,9 @@ class WorkerBase(AbstractWorker):
     def _internal_pre_work(self):
         current_thread().name = self._origin
 
+        self.logger.debug("Granting pogo permissions in internal_pre_work")
+        self._communicator.grant_pogo_permissions()
+
         start_position = self.get_devicesettings_value("startcoords_of_walker", None)
         calc_type = self._mapping_manager.routemanager_get_calc_type(self._routemanager_name)
 
@@ -753,6 +756,9 @@ class WorkerBase(AbstractWorker):
             self._communicator.turn_screen_on()
             time.sleep(self.get_devicesettings_value("post_turn_screen_on_delay", 7))
 
+        self.logger.debug("Granting pogo permissions in start_pogo")
+        self._communicator.grant_pogo_permissions()
+
         cur_time = time.time()
         start_result = False
         attempts = 0
@@ -843,6 +849,18 @@ class WorkerBase(AbstractWorker):
 
         return trashes
 
+    def _check_finished_quest(self, full_screen=False):
+        self.logger.debug("_check_finished_quest: Check finished quest.")
+        if not self._take_screenshot(delay_before=self.get_devicesettings_value("post_screenshot_delay", 1)):
+            self.logger.debug("_check_finished_quest: Failed getting screenshot")
+            return None
+
+        if os.path.isdir(self.get_screenshot_path()):
+            self.logger.error("_check_finished_quest: screenshot.png is not a file/corrupted")
+            return None
+
+        return self._pogoWindowManager.check_finished_quest(self.get_screenshot_path(), self._origin)
+
     def _take_screenshot(self, delay_after=0.0, delay_before=0.0, errorscreen: bool = False):
         self.logger.debug2("Taking screenshot...")
         time.sleep(delay_before)
@@ -916,6 +934,27 @@ class WorkerBase(AbstractWorker):
                 self.logger.debug("_check_pogo_main_screen: Found button (big)")
                 time.sleep(5)
                 found = True
+
+            if not found and self._pogoWindowManager.check_friends_screen(self._origin, screenshot_path,
+                                                                          self._communicator):
+                self.logger.debug("_check_pogo_main_screen: Found friends screen")
+                time.sleep(5)
+                found = True
+
+            if not found and self._pogoWindowManager.check_permission_screen(self._origin, screenshot_path,
+                                                                             self._communicator):
+                self.logger.warning("_check_pogo_main_screen: Found Google Accounts permission screen")
+                time.sleep(5)
+                found = True
+
+            if not found:
+                self.logger.debug("just panic click around a bit, maybe kill dialogue screens ...")
+                ct = 0
+                while ct < 5:
+                    self.logger.debug(f"panic click #{ct}")
+                    self._communicator.click(5, 5)
+                    time.sleep(1)
+                    ct += 1
 
             self.logger.debug("_check_pogo_main_screen: Previous checks found pop ups: {}", found)
 
