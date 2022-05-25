@@ -1,6 +1,7 @@
 import asyncio
 import copy
 from asyncio import Task
+from datetime import datetime
 from threading import Event
 from typing import Any, Dict, List, Optional, Set, Tuple, Union
 
@@ -53,7 +54,7 @@ mode_mapping = {
     },
     "pokestops": {
         "s2_cell_level": 13,
-        "range": 67,
+        "range": 70,  # stop interaction radius is 80m
         "max_count": 3
     },
     "iv_mitm": {
@@ -93,6 +94,7 @@ class AreaEntry:
         self.routecalc: SettingsRoutecalc = None
         self.geofence_included: int = None
         self.geofence_excluded: int = None
+        self.init: bool = False
 
 
 class MappingManager(AbstractMappingManager):
@@ -110,6 +112,20 @@ class MappingManager(AbstractMappingManager):
         self.__areamons: Optional[Dict[int, List[int]]] = {}
         self._monlists: Optional[Dict[int, List[int]]] = None
         self.__shutdown_event: Event = Event()
+
+        self._redis = None
+        if self.__args.enable_login_tracking:
+            try:
+                import redis
+                self._redis = redis.Redis(host=self.__args.login_tracking_host, port=self.__args.login_tracking_port,
+                                          db=self.__args.login_tracking_database)
+                self._redis.ping()
+            except ImportError:
+                logger.error("Cache enabled but redis dependency not installed. Continuing without login tracking")
+            except redis.exceptions.ConnectionError:
+                logger.error("Unable to connect to Redis server. Continouing without login tracking")
+            except Exception:
+                logger.error("Unknown error while enabling cache. Continuing without login tracking")
 
         # TODO: Move to init or call __init__ differently...
         self.__paused_devices: List[int] = []
@@ -557,7 +573,7 @@ class MappingManager(AbstractMappingManager):
 
             # grab coords
             # first check if init is false, if so, grab the coords from DB
-            geofence_helper = GeofenceHelper(geofence_included, geofence_excluded, area.name)
+            geofence_helper = GeofenceHelper(geofence_included, geofence_excluded)
             # build routemanagers
 
             # TODO: Fill with all settings...
@@ -597,7 +613,7 @@ class MappingManager(AbstractMappingManager):
             try:
                 await to_be_checked
             except RoutemanagerShuttingDown as e:
-                logger.warning("Ignoring area {} ({}) due to failure to calculate route.", area, routemanagers[area].name)
+                logger.warning("Ignoring area {} due to failure to calculate route.", area)
                 del routemanagers[area]
         return routemanagers
 
@@ -672,6 +688,7 @@ class MappingManager(AbstractMappingManager):
             # getattr to avoid checking modes individually...
             area_entry.geofence_included = getattr(area, "geofence_included", None)
             area_entry.geofence_excluded = getattr(area, "geofence_excluded", None)
+            area_entry.init = getattr(area, "init", None)
 
             areas[area_id] = area_entry
         return areas
@@ -801,3 +818,39 @@ class MappingManager(AbstractMappingManager):
     async def routemanager_redo_stop_at_end(self, routemanager_id: int, worker_name: str, location: Location) -> None:
         routemanager = self.__fetch_routemanager(routemanager_id)
         routemanager.redo_stop_at_end(worker_name, location)
+
+    async def ip_handle_login_request(self, ip, origin, limit_seconds=None, limit_count=None):
+        if not self._redis:
+            logger.warning("PTC login tracking not enabled. Allow this login request.")
+            return True
+        if not limit_seconds:
+            limit_seconds = self.__args.login_tracking_seconds
+        if not limit_count:
+            limit_count = self.__args.login_tracking_count
+        now = int(datetime.timestamp(datetime.now()))
+        logger.warning(f"Handle PTC login request on {ip} with redis")
+        with self._redis.pipeline() as pipe:
+            while True:
+                try:
+                    pipe.watch(ip)
+                    try:
+                        ct = self._redis.zcount(ip, now - limit_seconds, "+inf")
+                        logger.warning(f"got count {ct} for {ip} from redis")
+                    except Exception as e:
+                        logger.warning(f"Failed getting count for {ip} from redis! Deny this attempt ... "
+                                       f"({e})")
+                        return False
+                    if ct >= limit_count:
+                        logger.warning(f"Reached threshold of {limit_count} attempts per {limit_seconds} "
+                                       "seconds! Deny this login attempt")
+                        return False
+                    else:
+                        logger.warning(f"Allow this login attempt, register {ip} at {now} to redis")
+                        pipe.multi()
+                        pipe.zadd(ip, {f"{origin}:{now}": now})
+                        pipe.execute()
+                        return True
+
+                except WatchError as e:
+                    logger.warning(f"redis count changed, retry ... ({e})")
+                    asyncio.sleep(1)
