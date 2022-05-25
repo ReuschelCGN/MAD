@@ -7,7 +7,7 @@
 
 ![MAD-Banner](https://maddev.eu/wp-content/uploads/2020/01/banner_small_web.png)
 
-Map'A'Droid is a scanner for PoGo based on Android devices. 
+Map'A'Droid is a scanner for PoGo based on Android devices.
 
 ## Information
 
@@ -36,3 +36,15 @@ Have a look at our [Wiki](https://mad-docs.readthedocs.io/en/latest/)
 ## Contributing
 
 Information related to contributing to Map'A'Droid can be found [here](https://github.com/Map-A-Droid/MAD/blob/master/CONTRIBUTING.md)
+
+## Additional integrated patches from crhbetz (https://github.com/crhbetz/MAD)
+
+- permission-screen
+- wait-for-encounter
+- questworker-failcounts
+- backport-empty-gmo-and-encounters
+- cleanup-finished-quests
+- pogo-permissions
+- quest-encounters
+- iv-mitm-scanmode
+- friends-screen
