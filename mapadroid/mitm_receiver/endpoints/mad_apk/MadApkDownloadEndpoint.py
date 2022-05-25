@@ -1,9 +1,11 @@
-from typing import AsyncGenerator, Tuple, Optional
+from typing import AsyncGenerator, Optional, Tuple
 
 from aiohttp import web
+from loguru import logger
 
 from mapadroid.mad_apk.utils import stream_package
-from mapadroid.mitm_receiver.endpoints.AbstractMitmReceiverRootEndpoint import AbstractMitmReceiverRootEndpoint
+from mapadroid.mitm_receiver.endpoints.AbstractMitmReceiverRootEndpoint import \
+    AbstractMitmReceiverRootEndpoint
 
 
 class MadApkDownloadEndpoint(AbstractMitmReceiverRootEndpoint):
@@ -34,6 +36,9 @@ class MadApkDownloadEndpoint(AbstractMitmReceiverRootEndpoint):
             raise web.HTTPNotFound()
         else:
             data_generator, mimetype, filename, version = streaming_package
+        origin = self.request.headers.get("origin")
+        with logger.contextualize(identifier=origin, name="mad_apk_download"):
+            logger.info(f"Download of {apk_type}@{apk_arch} requested")
         response.content_type = mimetype
         response.headers['Content-Disposition'] = 'attachment; filename={}'.format(filename)
         response.headers['APK-Version'] = '{}'.format(version)
