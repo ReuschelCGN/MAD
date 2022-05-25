@@ -133,6 +133,90 @@ class PogoWindows:
 
         return self.__thread_pool.apply_async(trash_image_matching, (origin, filename, full_screen,)).get()
 
+    def check_friends_screen(self, origin, filename, communicator):
+        origin_logger = get_origin_logger(logger, origin=origin)
+        if not os.path.isfile(filename):
+            origin_logger.error("check_friends_screen: {} does not exist", filename)
+            return False
+        return self.__thread_pool.apply_async(self.__screendetection_check_friends_screen_internal,
+                                              (origin, filename, communicator)).get()
+
+    def __screendetection_check_friends_screen_internal(self, origin, filename, communicator):
+        origin_logger = get_origin_logger(logger, origin=origin)
+        globaldict: Optional[dict] = {}
+        diff: int = 1
+        origin_logger.debug("__screendetection_check_friends_screen_internal")
+
+        texts = []
+        try:
+            with Image.open(filename) as frame_org:
+                width, height = frame_org.size
+
+                origin_logger.debug("Screensize: W:{} x H:{}", width, height)
+
+                if width < 1080:
+                    origin_logger.info('Resize screen ...')
+                    frame_org = frame_org.resize([int(2 * s) for s in frame_org.size], Image.ANTIALIAS)
+                    diff: int = 2
+
+                texts = [frame_org]
+                for thresh in [200, 175, 150]:
+                    fn = lambda x: 255 if x > thresh else 0  # noqa: E731
+                    frame = frame_org.convert('L').point(fn, mode='1')
+                    texts.append(frame)
+                for text in texts:
+                    try:
+                        globaldict = pytesseract.image_to_data(text, output_type=Output.DICT, timeout=40,
+                                                               config='--dpi 70')
+                    except Exception as e:
+                        origin_logger.error("Tesseract Error: {}. Exception: {}", globaldict, e)
+                        globaldict = None
+                    if globaldict is None or 'text' not in globaldict:
+                        continue
+                    n_boxes = len(globaldict['text'])
+                    if 'Better' in globaldict['text'] and 'Friends!' in globaldict['text']:
+                        origin_logger.warning("Found Niantic Friends Screen #1 - trying to handle it")
+                        buttontexts = ["@O>", ]
+                        n_boxes = len(globaldict['text'])
+                        for index in range(n_boxes):
+                            # original screen coordinates
+                            left = globaldict["left"][index] / diff
+                            top = globaldict["top"][index] / diff
+                            textwidth = globaldict["width"][index] / diff
+                            textheight = globaldict["height"][index] / diff
+
+                            if globaldict['text'][index] in buttontexts:
+                                click_x = left + textwidth - 2
+                                click_y = top + (textheight / 2)
+                                origin_logger.debug(f"Coords of {globaldict['text'][index]}: left {left}, top {top},"
+                                                    f"width {textwidth}, height {textheight}")
+                                origin_logger.debug(f"Click: {click_x},{click_y}")
+                                communicator.click(click_x, click_y)
+                                # try to handle the second screen right here, too
+                                # coords confirmed for 720p and 1080p ATV resolution
+                                click_x = width / 2
+                                click_y = height * 0.83
+                                time.sleep(10)
+                                origin_logger.debug(f"Click: {click_x},{click_y}")
+                                communicator.click(click_x, click_y)
+                                return True
+
+                    elif 'CONTACTS' in globaldict['text'] and 'LIST' in globaldict['text']:
+                        origin_logger.warning("Found Niantic Friends Screen #2 - trying to handle it")
+                        click_x = width / 2
+                        click_y = height * 0.83
+                        origin_logger.debug(f"Click: {click_x},{click_y}")
+                        communicator.click(click_x, click_y)
+                        return True
+
+                del texts
+                frame.close()
+        except (FileNotFoundError, ValueError) as e:
+            origin_logger.error("Failed opening image {} with exception {}", filename, e)
+            return None
+
+        return False
+
     def look_for_button(self, origin, filename, ratiomin, ratiomax, communicator, upper: bool = False):
         origin_logger = get_origin_logger(logger, origin=origin)
         if not os.path.isfile(filename):
@@ -618,3 +702,142 @@ class PogoWindows:
             return None
 
         return returntype, globaldict, width, height, diff
+
+    def check_permission_screen(self, origin, filename, communicator):
+        origin_logger = get_origin_logger(logger, origin=origin)
+        if not os.path.isfile(filename):
+            origin_logger.error("check_permission_screen: {} does not exist", filename)
+            return False
+        return self.__thread_pool.apply_async(self.__screendetection_check_permission_screen_internal,
+                                              (origin, filename, communicator)).get()
+
+    def __screendetection_check_permission_screen_internal(self, origin, filename, communicator):
+        origin_logger = get_origin_logger(logger, origin=origin)
+        globaldict: Optional[dict] = {}
+        diff: int = 1
+        origin_logger.debug("__screendetection_check_permission_screen_internal")
+
+        texts = []
+        try:
+            with Image.open(filename) as frame_org:
+                width, height = frame_org.size
+
+                origin_logger.debug("Screensize: W:{} x H:{}", width, height)
+
+                if width < 1080:
+                    origin_logger.info('Resize screen ...')
+                    frame_org = frame_org.resize([int(2 * s) for s in frame_org.size], Image.ANTIALIAS)
+                    diff: int = 2
+
+                texts = [frame_org]
+                for thresh in [200, 175, 150]:
+                    fn = lambda x: 255 if x > thresh else 0  # noqa: E731
+                    frame = frame_org.convert('L').point(fn, mode='1')
+                    texts.append(frame)
+                for text in texts:
+                    try:
+                        globaldict = pytesseract.image_to_data(text, output_type=Output.DICT, timeout=40,
+                                                               config='--dpi 70')
+                    except Exception as e:
+                        origin_logger.error("Tesseract Error: {}. Exception: {}", globaldict, e)
+                        globaldict = None
+                    if globaldict is None or 'text' not in globaldict:
+                        continue
+                    n_boxes = len(globaldict['text'])
+                    if 'ALLOW' in globaldict['text']:
+                        origin_logger.info("Found ALLOW button")
+                        n_boxes = len(globaldict['text'])
+                        for index in range(n_boxes):
+                            # original screen coordinates
+                            left = globaldict["left"][index] / diff
+                            top = globaldict["top"][index] / diff
+                            textwidth = globaldict["width"][index] / diff
+                            textheight = globaldict["height"][index] / diff
+
+                            if globaldict['text'][index] == "ALLOW":
+                                click_x = left + (textwidth / 2)
+                                click_y = top + (textheight / 2)
+                                origin_logger.debug(f"Coords of {globaldict['text'][index]}: left {left}, top {top},"
+                                                    f"width {textwidth}, height {textheight}")
+                                origin_logger.debug(f"Click: {click_x},{click_y}")
+                                communicator.click(click_x, click_y)
+                                return True
+                del texts
+                frame.close()
+        except (FileNotFoundError, ValueError) as e:
+            origin_logger.error("Failed opening image {} with exception {}", filename, e)
+            return None
+
+        return False
+
+    def check_finished_quest(self, image, identifier):
+        return self.__thread_pool.apply_async(self.__check_finished_quest_internal, (image, identifier)).get()
+
+    def __check_finished_quest_internal(self, image, identifier):
+        origin_logger = get_origin_logger(logger, origin=identifier)
+        results = {"breakthrough": [], "finished": [], "blocked": [], "ar": []}
+        globaldict: Optional[dict] = {}
+        diff: int = 1
+        origin_logger.debug("__check_finished_quest_interal")
+
+        try:
+            with Image.open(image) as frame_org:
+                width, height = frame_org.size
+                origin_logger.debug("Screensize: W:{} x H:{}", width, height)
+
+                if width < 1080:
+                    origin_logger.info('Resize screen ...')
+                    frame_org = frame_org.resize([int(2 * s) for s in frame_org.size], Image.ANTIALIAS)
+                    diff: int = 2
+
+                try:
+                    globaldict = pytesseract.image_to_data(frame_org, output_type=Output.DICT, timeout=40,
+                                                           config='--dpi 70')
+                except Exception as e:
+                    origin_logger.error("Tesseract Error: {}. Exception: {}", globaldict, e)
+                    globaldict = None
+
+                origin_logger.debug("Screentext: {}", globaldict)
+                if globaldict is None or 'text' not in globaldict:
+                    return results
+
+                n_boxes = len(globaldict['text'])
+                for index in range(n_boxes):
+                    # original screen coordinates
+                    left = globaldict["left"][index] / diff
+                    top = globaldict["top"][index] / diff
+
+                    if globaldict['text'][index] in ["REWARD!", "ABHOLEN!"]:
+                        # get rgb values of a close "orange pixel" - the color differs between:
+                        # the quest stack, normal finished quests, and quests blocked bc of the breakthrough
+                        r, g, b = frame_org.getpixel((globaldict["left"][index], globaldict["top"][index] - 20 / diff))
+                        origin_logger.debug("Quest at {},{} has RGB: {}/{}/{}", left, top, r, g, b)
+
+                        # breakthrough reward is in the upper half of the screen
+                        if top < height / 2:
+                            origin_logger.debug("Found breakthrough reward at coords {},{}", left, top)
+                            results["breakthrough"].append({'x': left, 'y': top})
+                        # blocked quest - breakthrough needs to be retrieved
+                        elif 250 > r > 228 and g < 165 and b < 72:
+                            origin_logger.debug("Found blocked quest at coords {},{}", left, top)
+                            results["blocked"].append({'x': left, 'y': top})
+                        # finished quest - can be retrieved
+                        elif 250 > r > 228 and b < 90:
+                            origin_logger.debug("Found finished quest at coords {},{}", left, top)
+                            results["finished"].append({'x': left, 'y': top})
+                        # quest stack - to be ignored
+                        elif r > 249 and b < 90:
+                            origin_logger.debug("Found stacked quest at coords {},{}", left, top)
+
+                    if globaldict['text'][index] in ["Scan", "scannen"]:
+                        origin_logger.debug("Found AR quest at coords {},{}", left, top)
+                        results["ar"].append({'x': left, 'y': top})
+
+        except (FileNotFoundError, ValueError) as e:
+            origin_logger.error("Failed opening image {} with exception {}", image, e)
+            return results
+
+        # reverse sort by y so that clicking will start from the bottom - starting from the top causes entries to move
+        if results["finished"]:
+            results["finished"] = sorted(results["finished"], key=lambda k: k['y'], reverse=True)
+        return results
