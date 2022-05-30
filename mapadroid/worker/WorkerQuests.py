@@ -37,7 +37,6 @@ class ClearThreadTasks(Enum):
     IDLE = 0
     BOX = 1
     QUEST = 2
-    QUEST_WITH_FINISHED = 3
 
 class PositionStopType(Enum):
     GMO_NOT_AVAILABLE = 0,
@@ -135,7 +134,7 @@ class WorkerQuests(MITMBase):
         else:
             # initial cleanup old quests
             if not self._init:
-                self.clear_thread_task = ClearThreadTasks.QUEST_WITH_FINISHED
+                self.clear_thread_task = ClearThreadTasks.QUEST
 
     def _health_check(self):
         """
@@ -312,11 +311,7 @@ class WorkerQuests(MITMBase):
                         self.logger.info("Clearing quest")
                         self._clear_quests(self._delay_add)
                         self.clear_thread_task = ClearThreadTasks.IDLE
-                    elif self.clear_thread_task == ClearThreadTasks.QUEST_WITH_FINISHED and not self._level_mode:
-                        self.logger.info("Clearing quests and checking for finished quests")
-                        self._clear_quests(self._delay_add, check_finished=True)
-                        self.clear_thread_task = ClearThreadTasks.IDLE
-                        time.sleep(1)
+                    time.sleep(1)
                 except (InternalStopWorkerException, WebsocketWorkerRemovedException,
                         WebsocketWorkerTimeoutException, WebsocketWorkerConnectionClosedException):
                     self.logger.error("Worker removed while clearing quest/box")
@@ -743,7 +738,7 @@ class WorkerQuests(MITMBase):
                     if not reached_main_menu:
                         if not self._restart_pogo(mitm_mapper=self._mitm_mapper):
                             raise InternalStopWorkerException
-                    self.clear_thread_task = ClearThreadTasks.QUEST_WITH_FINISHED
+                    self.clear_thread_task = ClearThreadTasks.QUEST
                     self._clear_quest_counter = 0
                 else:
                     self.logger.warning(f"Failed getting quest but got items {self._got_items_failcount} times in a "
