@@ -43,7 +43,6 @@ Information related to contributing to Map'A'Droid can be found [here](https://g
 - wait-for-encounter
 - questworker-failcounts
 - backport-empty-gmo-and-encounters
-- cleanup-finished-quests
 - pogo-permissions
 - quest-encounters
 - iv-mitm-scanmode
