@@ -38,6 +38,7 @@ class ClearThreadTasks(Enum):
     BOX = 1
     QUEST = 2
 
+
 class PositionStopType(Enum):
     GMO_NOT_AVAILABLE = 0,
     GMO_EMPTY = 1,
@@ -369,6 +370,8 @@ class WorkerQuests(MITMBase):
                 self.logger.info('Found no item to delete. Scrolling down ({} times)', error_counter)
                 self._communicator.touch_and_hold(int(200), int(600), int(200), int(100))
                 time.sleep(5)
+                self._communicator.touch_and_hold(int(200), int(600), int(200), int(100))
+                time.sleep(5)
 
             trashcancheck = self._get_trash_positions()
 
@@ -573,16 +576,14 @@ class WorkerQuests(MITMBase):
 
         recheck_count = 0
         while stop_type in (PositionStopType.GMO_NOT_AVAILABLE, PositionStopType.GMO_EMPTY,
-                            PositionStopType.NO_FORT) and not recheck_count > 5:
+                            PositionStopType.NO_FORT) and not recheck_count > 2:
             recheck_count += 1
-            self.logger.info("Wait for new data to check the stop again ... ({}, attempt {})", stop_type,
-                             recheck_count + 1)
-            repeat_timestamp = time.time()
-            type_received, proto_entry = self._wait_for_data(timestamp=repeat_timestamp,
+            self.logger.info("Wait for new data to check the stop again ... (attempt {})", recheck_count + 1)
+            type_received, proto_entry = self._wait_for_data(timestamp=time.time(),
                                                              proto_to_wait_for=ProtoIdentifier.GMO,
                                                              timeout=35)
             if type_received != LatestReceivedType.UNDEFINED:
-                stop_type = self._current_position_has_spinnable_stop(repeat_timestamp)
+                stop_type = self._current_position_has_spinnable_stop(timestamp)
 
         if not PositionStopType.type_contains_stop_at_all(stop_type):
             self.logger.info("Location {}, {} considered to be ignored in the next round due to failed "
