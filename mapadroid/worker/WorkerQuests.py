@@ -632,6 +632,7 @@ class WorkerQuests(MITMBase):
                     self._check_pogo_close(takescreen=True)
 
             to += 1
+
         if to > 2:
             self._open_pokestop_failcount += 1
             self.logger.warning(f"Giving up on this stop after 3 failures in open_pokestop loop - failcount is "
@@ -646,8 +647,9 @@ class WorkerQuests(MITMBase):
             self.logger.success("Seems like open_pokestop loop was ok - reset failcount of "
                                 f"{self._open_pokestop_failcount} to 0")
             self._open_pokestop_failcount = 0
+
         return type_received
-        
+
     # TODO: handle https://github.com/Furtif/POGOProtos/blob/master/src/POGOProtos/Networking/Responses
     #  /FortSearchResponse.proto#L12
     def _handle_stop(self, timestamp: float):
