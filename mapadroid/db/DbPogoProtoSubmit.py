@@ -325,7 +325,7 @@ class DbPogoProtoSubmit:
         if cache_time > 0:
             await self._cache.set(cache_key, 1, ex=cache_time)
         time_done = time.time() - time_start_submit
-        logger.success("Done updating mon IV in DB in {} seconds", time_done)
+        logger.debug("Done updating mon IV in DB in {} seconds", time_done)
 
         return encounter_id, is_shiny
 

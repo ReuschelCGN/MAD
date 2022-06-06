@@ -1,5 +1,6 @@
 import asyncio
 from typing import Optional
+from ipaddress import IPv4Address, ip_address
 
 import websockets
 from aiofile import async_open
@@ -238,3 +239,33 @@ class Communicator(AbstractCommunicator):
                 await fh.write(encoded)
             logger.debug("Done storing logcat, returning")
             return True
+
+    async def get_external_ip(self) -> str:
+        try:
+            res = await self.passthrough("echo \"$(curl -k -s https://ifconfig.me)\"")
+        except Exception as e:
+            logger.error(f"Failed getting external IP address from device: {e}")
+            return False
+
+        # parse RGC return expression
+        try:
+            res = " ".join(res.replace("[", "").replace("]", "").splitlines())
+        except Exception as e:
+            logger.error(f"Failed parsing external IP: {e}")
+            return False
+
+        if type(ip_address(res)) is IPv4Address:
+            return res
+        else:
+            logger.error(f"{res} is not a valid IPv4 address")
+            return False
+
+    async def get_ptc_status(self):
+        try:
+            code = await self.passthrough("curl -s -k -I https://sso.pokemon.com/sso/login -o /dev/null "
+                                          "-w '%{http_code}'")
+            code = str(code).replace("[", "").replace("]", "")
+            return int(code)
+        except Exception as e:
+            logger.warning(f"communicator failed getting PTC status code: {e}")
+            return False

@@ -37,9 +37,12 @@ def parse_args():
         auto_env_var_prefix='THERAIDMAPPER_')
     parser.add_argument('-cf', '--config',
                         is_config_file=True, help='Set configuration file')
-    parser.add_argument('-asi', '--apk_storage_interface', default='db', help='APK Storage Interface')
+    parser.add_argument('-asi', '--apk_storage_interface', default='fs', help='APK Storage Interface')
 
     # MySQL
+    # TODO - Depercate this
+    parser.add_argument('-dbm', '--db_method', required=False, default="rm",
+                        help='LEGACY: DB scheme to be used')
     parser.add_argument('-dbip', '--dbip', required=False,
                         help='IP or hostname of MySql Server')
     parser.add_argument('-dbport', '--dbport', type=int, default=3306,
@@ -52,15 +55,6 @@ def parse_args():
                         help='Name of MySQL Database')
     parser.add_argument('-dbps', '--db_poolsize', type=int, default=5,
                         help='Size of MySQL pool (open connections to DB). Default: 5')
-
-    # DB Cleanup
-    parser.add_argument('-ci', '--cleanup_interval', type=int, default=300,
-                        help='Interval between database cleanup routines in seconds. Default: 300.')
-    parser.add_argument('-delmonshours', '--delete_mons_n_hours', type=int, default=None,
-                        help='Remove mons from DB N hours after despawn. Only use positive values. '
-                             'None if no cleanup is to be run. Default: None')
-    parser.add_argument('-delmonslimit', '--delete_mons_limit', type=int, default=5000,
-                        help='Limit the number of mon records to be deleted in each run. Default: 5000. 0 represents infinity - may cause long locks on tables.')
 
     # Websocket Settings (RGC receiver)
     parser.add_argument('-wsip', '--ws_ip', required=False, default="0.0.0.0", type=str,
@@ -86,8 +80,6 @@ def parse_args():
                         help='Header Authorization password for MITM /status/ page')
     parser.add_argument('-mitmus', '--mitm_unix_socket', required=False, default=None, type=str,
                         help="Path to unix socket file to use if TCP is not to be used for MITMReceiver...")
-    parser.add_argument('-xfwdpmitmr', '--enable_x_forwarded_path_mitm_receiver', default=False, type=bool,
-                        help='Enable X-Fordward-Path allowance for reverse proxy usage for MITMReceiver. Default: False')
 
     # MappingManager gRPC
     parser.add_argument('-mmgrip', '--mappingmanager_ip', required=False, default="[::]", type=str,
@@ -191,6 +183,8 @@ def parse_args():
                         help='Set mappings file')
 
     # other settings
+    parser.add_argument('-w', '--weather', action='store_true', default=False,
+                        help='Read weather and post to db - if supported! (Default: False)')
     parser.add_argument('-hlat', '--home_lat', default='0.0', type=float,
                         help=('Set Lat from the center of your scan location.'
                               'Especially for using MADBOT (User submitted Raidscreens). Default: 0.0'))
@@ -231,8 +225,6 @@ def parse_args():
                         help='Define when a spawnpoint is out of date (in days). Default: 3.')
     parser.add_argument('--quest_stats_fences', default="",
                         help="Comma separated list of geofences for stop/quest statistics (Empty: all)")
-    parser.add_argument('-xfwdpmadmin', '--enable_x_forwarded_path_madmin', default=False, type=bool,
-                        help='Enable X-Fordward-Path allowance for reverse proxy usage for MADmin. Default: False')
 
     # Statistics
     parser.add_argument('-stat', '--statistic', action='store_true', default=False,
@@ -354,6 +346,24 @@ def parse_args():
                         help=('Redis password'))
     parser.add_argument('-cdb', '--cache_database', default=0,
                         help=('Redis database. Use different numbers (0-15) if you are running multiple instances'))
+
+    # PTC login rate limiting
+    parser.add_argument('-elt', '--enable_login_tracking', action='store_true', default=False,
+                        help=('Enable tracking of login attempts to PTC'))
+    parser.add_argument('-ltm', '--login_tracking_mode', default='local',
+                        help=('Store login data within the instance (local), or track it using a redis server (redis)'))
+    parser.add_argument('-lth', '--login_tracking_host', default='localhost',
+                        help=('Redis host used by login tracking'))
+    parser.add_argument('-ltp', '--login_tracking_port', type=int, default=6379,
+                        help=('Redis port used by login tracking'))
+    parser.add_argument('-ltdb', '--login_tracking_database', type=int, default=0,
+                        help=('Redis database used by login tracking. Uses numbers (0-15)'))
+    parser.add_argument('-ltc', '--login_tracking_count', type=int, default=15,
+                        help=('Number of allowed logins per timeframe defined by login_tracking_seconds '
+                              '(Default: 15)'))
+    parser.add_argument('-lts', '--login_tracking_seconds', type=int, default=360,
+                        help=('Time until a login attempt no longer counts against the login_tracking_count '
+                              '(default: 360)'))
 
     if "MODE" in os.environ and os.environ["MODE"] == "DEV":
         args = parser.parse_known_args()[0]

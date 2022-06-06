@@ -82,12 +82,12 @@ class AbstractWorkerStrategy(ABC):
         pass
 
     @abstractmethod
-    async def move_to_location(self) -> Optional[int]:
+    async def move_to_location(self) -> Tuple[int, Location]:
         """
         Location has previously been grabbed, the overridden function will be called.
         You may teleport or walk by your choosing
         Any post walk/teleport delays/sleeps have to be run in the derived, override method
-        :return: Timestamp the move was finished (respecting sleep etc.)
+        :return: Tuple consisting of timestamp of arrival and location
         """
         pass
 
@@ -204,6 +204,25 @@ class AbstractWorkerStrategy(ABC):
             await asyncio.sleep(
                 await self.get_devicesettings_value(MappingManagerDevicemappingKey.POST_TURN_SCREEN_ON_DELAY, 7))
 
+        if await self.get_devicesettings_value('logintype', 'ptc') == 'ptc' and application_args.enable_login_tracking:
+            while not await self._word_to_screen_matching._allow_ptc_login(mode="start"):
+                # sleeping close to or longer than 5 minutes may cause a problem with a 5 minute timeout
+                # in the RGC websocket connection? Only sleep 60s and then do some nonsense ...
+                logger.warning("start_pogo: Did not get permission to try PTC login right now. Kill pogo data and"
+                               " wait 4 minutes...")
+                await self._communicator.reset_app_data("com.nianticlabs.pokemongo")
+                await self._communicator.stop_app("com.nianticlabs.pokemongo")
+                c=0
+                await self._communicator.passthrough("true")
+                while c < 4:
+                    logger.warning(f"sleep 60 more seconds ... c = {c}")
+                    c+=1
+                    await asyncio.sleep(60)
+                    await self._communicator.passthrough("true")
+            logger.success("start_pogo got permission for PTC login through app start")
+
+        logger.warning(f"logintype is {await self.get_devicesettings_value('logintype', 'default')}")
+
         await self._grant_permissions_to_pogo()
         cur_time = time.time()
         start_result = False
@@ -297,6 +316,7 @@ class AbstractWorkerStrategy(ABC):
                 if self._worker_state.same_screen_count > 3:
                     logger.warning("Screen is frozen!")
                     if self._worker_state.same_screen_count > 4 or not await self._restart_pogo():
+                        self._worker_state.same_screen_count = 0
                         logger.warning("Restarting PoGo failed - reboot device")
                         await self._reboot()
                     break

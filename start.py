@@ -189,9 +189,6 @@ async def start():
         logger.info("Starting statistics collector")
         loop = asyncio.get_running_loop()
         t_usage = loop.create_task(get_system_infos(db_wrapper))
-
-    db_cleanup: DbCleanup = DbCleanup(db_wrapper)
-    await db_cleanup.start()
     logger.info("MAD is now running.....")
     exit_code = 0
     try:
@@ -245,6 +242,7 @@ async def start():
 if __name__ == "__main__":
     global application_args
     os.environ['LANGUAGE'] = application_args.language
+    os.environ['OMP_THREAD_LIMIT'] = "1"
     init_logging(application_args)
     setup_loggers()
     logger = get_logger(LoggerEnums.system)

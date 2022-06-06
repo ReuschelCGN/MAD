@@ -189,17 +189,39 @@ class WordToScreenMatching(object):
         n_boxes = len(global_dict['text'])
         logger.debug("Selecting login with: {}", global_dict)
         for i in range(n_boxes):
+            can_click = False
             if 'Facebook' in (global_dict['text'][i]):
                 temp_dict['Facebook'] = global_dict['top'][i] / diff
+                can_click = True
             if 'CLUB' in (global_dict['text'][i]):
                 temp_dict['CLUB'] = global_dict['top'][i] / diff
+                can_click = True
             # french ...
             if 'DRESSEURS' in (global_dict['text'][i]):
                 temp_dict['CLUB'] = global_dict['top'][i] / diff
+                can_click = True
             if 'Google' in (global_dict['text'][i]):
                 temp_dict['Google'] = global_dict['top'][i] / diff
+                can_click = True
+
+            if not can_click:
+                continue
 
             if await self.get_devicesettings_value(MappingManagerDevicemappingKey.LOGINTYPE, 'google') == 'ptc':
+                if self._applicationArgs.enable_login_tracking:
+                    while not await self._allow_ptc_login():
+                        # sleeping close to or longer than 5 minutes may cause a problem with a 5 minute timeout
+                        # in the RGC websocket connection? Only sleep 60s and do some nonsense ...
+                        logger.warning("Did not get permission to try PTC login right now. Wait 4 minutes ...")
+                        c=0
+                        await self._communicator.passthrough("true")
+                        while c < 4:
+                            logger.warning(f"sleep 60 more seconds ... c = {c}")
+                            c+=1
+                            await asyncio.sleep(60)
+                            await self._communicator.passthrough("true")
+
+
                 self._nextscreen = ScreenType.PTC
                 if 'CLUB' in (global_dict['text'][i]):
                     logger.info("ScreenType.LOGINSELECT (c) using PTC (logintype in Device Settings)")
@@ -688,3 +710,28 @@ class WordToScreenMatching(object):
         else:
             returntype, global_dict, self._width, self._height, diff = result
             return returntype, global_dict, diff
+
+    async def _allow_ptc_login(self, mode="login"):
+        if mode not in ["login", "start"]:
+            mode = "login"
+        logger.warning(f"check for PTC login permission, mode {mode}")
+
+        ip = await self._communicator.get_external_ip()
+        if not ip:
+            logger.warning("Unable to get IP from device. Deny PTC login request")
+            return False
+
+        code = await self._communicator.get_ptc_status()
+        if code:
+            if code == 200:
+                logger.warning("OK - PTC returned 200")
+                return await self._mapping_manager.ip_handle_login_request(ip, self.origin)
+            elif code == 403 and mode == "start":
+                logger.warning(f"PTC ban is active ({code}) - still allow trying to start app")
+                return await self._mapping_manager.ip_handle_login_request(ip, self.origin)
+            else:
+                logger.warning(f"PTC login server returned {code} - do not log in!")
+                return False
+        else:
+            logger.warning("Failed getting a PTC return code - do not log in!")
+            return False
