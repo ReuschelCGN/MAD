@@ -7,13 +7,17 @@ from typing import Optional
 from aiohttp import web
 from aioredis import Redis
 
-from mapadroid.data_handler.StandaloneMitmMapperAndStatsHandler import StandaloneMitmMapperAndStatsHandler
 from mapadroid.data_handler.grpc.MitmMapperServer import MitmMapperServer
 from mapadroid.data_handler.grpc.StatsHandlerServer import StatsHandlerServer
-from mapadroid.data_handler.mitm_data.AbstractMitmMapper import AbstractMitmMapper
+from mapadroid.data_handler.mitm_data.AbstractMitmMapper import \
+    AbstractMitmMapper
 from mapadroid.data_handler.mitm_data.MitmMapperType import MitmMapperType
 from mapadroid.data_handler.mitm_data.RedisMitmMapper import RedisMitmMapper
-from mapadroid.data_handler.stats.AbstractStatsHandler import AbstractStatsHandler
+from mapadroid.data_handler.StandaloneMitmMapperAndStatsHandler import \
+    StandaloneMitmMapperAndStatsHandler
+from mapadroid.data_handler.stats.AbstractStatsHandler import \
+    AbstractStatsHandler
+from mapadroid.db.DbCleanup import DbCleanup
 from mapadroid.db.DbFactory import DbFactory
 from mapadroid.mad_apk import get_storage_obj
 from mapadroid.madmin.madmin import MADmin
@@ -24,6 +28,7 @@ from mapadroid.mitm_receiver.MitmDataProcessorManager import \
 from mapadroid.mitm_receiver.MITMReceiver import MITMReceiver
 from mapadroid.ocr.pogoWindows import PogoWindows
 from mapadroid.plugins.pluginBase import PluginCollection
+from mapadroid.updater.updater import DeviceUpdater
 from mapadroid.utils.EnvironmentUtil import setup_loggers, setup_runtime
 from mapadroid.utils.logging import LoggerEnums, get_logger, init_logging
 from mapadroid.utils.madGlobals import application_args, terminate_mad
@@ -31,7 +36,6 @@ from mapadroid.utils.pogoevent import PogoEvent
 from mapadroid.utils.questGen import QuestGen
 from mapadroid.utils.rarity import Rarity
 from mapadroid.utils.SystemStatsUtil import get_system_infos
-from mapadroid.utils.updater import DeviceUpdater
 from mapadroid.webhook.webhookworker import WebhookWorker
 from mapadroid.websocket.WebsocketServer import WebsocketServer
 
@@ -142,8 +146,8 @@ async def start():
     # TODO: module/service?
     await ws_server.start_server()
 
-    device_updater = DeviceUpdater(ws_server, application_args, jobstatus, db_wrapper, storage_elem)
-    await device_updater.init_jobs()
+    device_updater = DeviceUpdater(ws_server, db_wrapper, storage_elem)
+    await device_updater.start_updater()
     if not application_args.config_mode:
         if application_args.webhook:
             rarity = Rarity(application_args, db_wrapper)
@@ -152,7 +156,7 @@ async def start():
             webhook_task: Task = await webhook_worker.start()
             # TODO: Stop webhook_task properly
 
-    madmin = MADmin(application_args, db_wrapper, ws_server, mapping_manager, device_updater, jobstatus, storage_elem,
+    madmin = MADmin(db_wrapper, ws_server, mapping_manager, device_updater, storage_elem,
                     quest_gen)
 
     # starting plugin system
@@ -209,7 +213,7 @@ async def start():
                 logger.info("Stopping webhook task")
                 webhook_task.cancel()
             if device_updater is not None:
-                device_updater.stop_updater()
+                await device_updater.stop_updater()
             if t_usage:
                 t_usage.cancel()
             if ws_server is not None:
