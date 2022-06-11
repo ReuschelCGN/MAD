@@ -370,8 +370,6 @@ class WorkerQuests(MITMBase):
                 self.logger.info('Found no item to delete. Scrolling down ({} times)', error_counter)
                 self._communicator.touch_and_hold(int(200), int(600), int(200), int(100))
                 time.sleep(5)
-                self._communicator.touch_and_hold(int(200), int(600), int(200), int(100))
-                time.sleep(5)
 
             trashcancheck = self._get_trash_positions()
 
