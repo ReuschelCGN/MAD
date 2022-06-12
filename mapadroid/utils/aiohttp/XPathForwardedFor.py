@@ -1,5 +1,5 @@
 from aiohttp import web
-from aiohttp_remotes.exceptions import RemoteError, TooManyHeaders
+from aiohttp_remotes.exceptions import RemoteError
 from aiohttp_remotes.x_forwarded import XForwardedBase
 from yarl import URL
 
@@ -13,13 +13,13 @@ logger = get_logger(LoggerEnums.system)
 class XPathForwarded(XForwardedBase):
 
     def __init__(self, num=1):
+        logger.warning("{} enabled", self.__class__.__name__)
         self._num = num
 
     @web.middleware
     async def middleware(self, request, handler):
-        logger.warning("Using middleware to read header {} of request to {}.",
-                       X_FORWARDED_PATH,
-                       request.path)
+        logger.debug2("Using middleware to read header {} of request to {}.",
+                      X_FORWARDED_PATH, request.path)
         try:
             overrides = {}
             headers = request.headers
@@ -39,12 +39,11 @@ class XPathForwarded(XForwardedBase):
             prefix = get_forwarded_path(headers)
             if prefix is not None:
                 prefix = '/' + prefix.strip('/') + '/'
-                request_path = URL(request.path.lstrip('/'))
+                request_path = URL(request.path_qs.lstrip('/'))
                 overrides['rel_url'] = URL(prefix).join(request_path)
 
             request = request.clone(**overrides)
-            logger.warning("Handling request to {} ({})", request.path,
-                           request_path)
+            logger.debug2("Handling request to {} ({})", request.path, request_path)
             return await handler(request)
         except RemoteError as exc:
             exc.log(request)
