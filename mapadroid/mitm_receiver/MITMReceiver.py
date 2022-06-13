@@ -273,12 +273,6 @@ class MITMReceiver(Process):
         if proto_type not in (106, 102, 101, 104, 4, 156, 145):
             # trash protos - ignoring
             return
-        elif proto_type == 106 and not data["payload"].get("cells", []):
-            origin_logger.debug("Ignoring apparently empty GMO")
-            return
-        elif proto_type == 102 and not data["payload"].get("status", None) == 1:
-            origin_logger.warning("Encounter with status {} being ignored", data["payload"].get("status", None))
-            return
 
         timestamp: float = data.get("timestamp", int(time.time()))
         if self.__application_args.mitm_ignore_pre_boot is True and timestamp < self.__mitmreceiver_startup_time:
