@@ -42,7 +42,6 @@ Information related to contributing to Map'A'Droid can be found [here](https://g
 - permission-screen
 - wait-for-encounter
 - questworker-failcounts
-- backport-empty-gmo-and-encounters
 - pogo-permissions
 - quest-encounters
 - iv-mitm-scanmode
