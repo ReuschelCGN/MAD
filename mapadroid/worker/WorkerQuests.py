@@ -574,7 +574,7 @@ class WorkerQuests(MITMBase):
 
         recheck_count = 0
         while stop_type in (PositionStopType.GMO_NOT_AVAILABLE, PositionStopType.GMO_EMPTY,
-                            PositionStopType.NO_FORT) and not recheck_count > 2:
+                            PositionStopType.NO_FORT) and not recheck_count > 5:
             recheck_count += 1
             self.logger.info("Wait for new data to check the stop again ... (attempt {})", recheck_count + 1)
             type_received, proto_entry = self._wait_for_data(timestamp=time.time(),
