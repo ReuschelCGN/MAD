@@ -269,7 +269,7 @@ class DbPogoProtoSubmit:
             "INSERT INTO pokemon (encounter_id, spawnpoint_id, pokemon_id, latitude, longitude, disappear_time, "
             "individual_attack, individual_defense, individual_stamina, move_1, move_2, cp, cp_multiplier, "
             "weight, height, gender, catch_prob_1, catch_prob_2, catch_prob_3, rating_attack, rating_defense, "
-            "weather_boosted_condition, last_modified, costume, form, seen_type) "
+            "weather_boosted_condition, last_modified, costume, form, size, seen_type) "
             "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, "
             "%s, %s, %s, %s, %s, %s) "
             "ON DUPLICATE KEY UPDATE last_modified=VALUES(last_modified), disappear_time=VALUES(disappear_time), "
