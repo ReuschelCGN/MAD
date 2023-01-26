@@ -177,7 +177,7 @@ class DbWebhookReader:
         query = (
             "SELECT pokemon.encounter_id, spawnpoint_id, pokemon_id, pokemon.latitude, pokemon.longitude, "
             "disappear_time, individual_attack, individual_defense, individual_stamina, "
-            "move_1, move_2, cp, cp_multiplier, weight, height, pokemon.gender, pokemon.form, pokemon.size, pokemon.costume, "
+            "move_1, move_2, cp, cp_multiplier, weight, height, pokemon.gender, pokemon.form, size, pokemon.costume, "
             "weather_boosted_condition, pokemon.last_modified, catch_prob_1, catch_prob_2, catch_prob_3, "
             "(trs_spawn.calc_endminsec IS NOT NULL) AS verified, seen_type, "
             "pokemon_display.pokemon as display_pokemon, "
