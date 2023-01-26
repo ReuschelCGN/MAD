@@ -306,7 +306,7 @@ class DbPogoProtoSubmit:
             now,
             pokemon_display.get("costume_value", None),
             form,
-            size = pokemon_data.get("size", None)
+            pokemon_data.get("size", None)
             "encounter"
         )
 
