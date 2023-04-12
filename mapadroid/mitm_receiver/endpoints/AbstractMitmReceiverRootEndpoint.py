@@ -7,6 +7,7 @@ from abc import ABC
 from functools import wraps
 from typing import Any, Dict, Optional, Tuple, Union
 
+from aiocache import cached
 from aiohttp import web
 from aiohttp.abc import Request
 from aiohttp.helpers import sentinel
@@ -21,14 +22,16 @@ from mapadroid.data_handler.mitm_data.AbstractMitmMapper import \
 from mapadroid.db.DbWrapper import DbWrapper
 from mapadroid.db.helper.AutoconfigRegistrationHelper import \
     AutoconfigRegistrationHelper
-from mapadroid.db.model import AutoconfigLog, AutoconfigRegistration, Base
+from mapadroid.db.helper.SettingsAuthHelper import SettingsAuthHelper
+from mapadroid.db.model import (AuthLevel, AutoconfigLog,
+                                AutoconfigRegistration, Base, SettingsAuth)
 from mapadroid.mad_apk.abstract_apk_storage import AbstractAPKStorage
 from mapadroid.mad_apk.utils import convert_to_backend
 from mapadroid.madmin import apiException
 from mapadroid.mapping_manager.MappingManager import MappingManager
 from mapadroid.updater.updater import DeviceUpdater
 from mapadroid.utils.apk_enums import APKArch, APKPackage, APKType
-from mapadroid.utils.authHelper import check_auth
+from mapadroid.utils.authHelper import check_auth, get_auths_for_levl
 from mapadroid.utils.json_encoder import MADEncoder
 from mapadroid.utils.madGlobals import application_args
 
@@ -309,9 +312,9 @@ class AbstractMitmReceiverRootEndpoint(web.View, ABC):
         Returns:
 
         """
-        auth = self._request.headers.get('Authorization')
-        auths_allowed: Optional[Dict[str, str]] = await self._get_mapping_manager().get_auths()
-        if not check_auth(logger, auth, self._get_mad_args(), auths_allowed):
+        auth: Optional[str] = self._request.headers.get('Authorization')
+        auths_allowed: Dict[str, SettingsAuth] = await get_auths_for_levl(self._get_db_wrapper(), AuthLevel.MITM_DATA)
+        if not check_auth(logger, auth, auths_allowed):
             logger.warning("Unauthorized attempt to connect from {}", self._get_request_address())
             raise web.HTTPUnauthorized()
 

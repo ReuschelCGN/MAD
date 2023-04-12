@@ -108,9 +108,11 @@ class WordToScreenMatching(object):
         temp_dict: dict = {}
         n_boxes = len(global_dict['text'])
         logger.debug("Selecting login with: {}", global_dict)
-        if self._worker_state.active_account_last_set + 300 < time.time():
+        if (self._worker_state.active_account_last_set + 300 < time.time()
+                or (self._worker_state.active_account
+                    and await self._account_handler.is_burnt(self._worker_state.device_id))):
             logger.info("Detected login screen, fetching new account to use since last account was assigned more "
-                        "than 5minutes ago")
+                        "than 5 minutes ago OR current account was marked burnt")
             location_to_scan: Optional[Location] = None
             if not location_to_scan \
                     or self._worker_state.current_location.lat == 0 and self._worker_state.current_location.lng == 0:
@@ -376,15 +378,19 @@ class WordToScreenMatching(object):
 
     async def __handle_google_login(self, screentype) -> ScreenType:
         self._nextscreen = ScreenType.UNDEFINED
+        usernames: Optional[str] = None
         if self._worker_state.active_account and self._worker_state.active_account.login_type == LoginType.ptc.name:
             logger.warning('Really dont know how i get there ... using first @ggl address ... :)')
-            username = await self.get_devicesettings_value(MappingManagerDevicemappingKey.GGL_LOGIN_MAIL, '@gmail.com')
+            usernames: Optional[str] = await self.get_devicesettings_value(MappingManagerDevicemappingKey.GGL_LOGIN_MAIL, '@gmail.com')
         elif self._worker_state.active_account:
-            username = self._worker_state.active_account.username
+            usernames: Optional[str] = self._worker_state.active_account.username
         else:
+            logger.error("No active account set in worker_state")
+        if not usernames:
             logger.error("Failed determining which google account to use")
             return ScreenType.ERROR
-        if await self.parse_ggl(await self._communicator.uiautomator(), username):
+        usernames_to_check_for: List[str] = usernames.split(",")
+        if await self.parse_ggl(await self._communicator.uiautomator(), usernames_to_check_for):
             logger.info("Sleeping 50 seconds - please wait!")
             await asyncio.sleep(50)
         else:
@@ -568,7 +574,7 @@ class WordToScreenMatching(object):
         logger.warning('Could not find any button...')
         return False
 
-    async def parse_ggl(self, xml, mail: Optional[str]) -> bool:
+    async def parse_ggl(self, xml, mails: List[str]) -> bool:
         if xml is None:
             logger.warning('Something wrong with processing - getting None Type from Websocket...')
             return False
@@ -576,18 +582,19 @@ class WordToScreenMatching(object):
             parser = ET.XMLParser(encoding="utf-8")
             xmlroot = ET.fromstring(xml, parser=parser)
             for item in xmlroot.iter('node'):
-                if (mail and mail.lower() in str(item.attrib['text']).lower()
-                        or not mail and (item.attrib["resource-id"] == "com.google.android.gms:id/account_name"
-                                         or "@" in str(item.attrib['text']))):
-                    logger.info("Found mail {}", self.censor_account(str(item.attrib['text'])))
-                    bounds = item.attrib['bounds']
-                    logger.debug("Bounds {}", item.attrib['bounds'])
-                    match = re.search(r'^\[(\d+),(\d+)\]\[(\d+),(\d+)\]$', bounds)
-                    click_x = int(match.group(1)) + ((int(match.group(3)) - int(match.group(1))) / 2)
-                    click_y = int(match.group(2)) + ((int(match.group(4)) - int(match.group(2))) / 2)
-                    await self._communicator.click(int(click_x), int(click_y))
-                    await asyncio.sleep(5)
-                    return True
+                for mail in mails:
+                    if (mail and mail.lower() in str(item.attrib['text']).lower()
+                            or not mail and (item.attrib["resource-id"] == "com.google.android.gms:id/account_name"
+                                             or "@" in str(item.attrib['text']))):
+                        logger.info("Found mail {}", self.censor_account(str(item.attrib['text'])))
+                        bounds = item.attrib['bounds']
+                        logger.debug("Bounds {}", item.attrib['bounds'])
+                        match = re.search(r'^\[(\d+),(\d+)\]\[(\d+),(\d+)\]$', bounds)
+                        click_x = int(match.group(1)) + ((int(match.group(3)) - int(match.group(1))) / 2)
+                        click_y = int(match.group(2)) + ((int(match.group(4)) - int(match.group(2))) / 2)
+                        await self._communicator.click(int(click_x), int(click_y))
+                        await asyncio.sleep(5)
+                        return True
         except Exception as e:
             logger.error('Something wrong while parsing xml: {}', e)
             logger.exception(e)

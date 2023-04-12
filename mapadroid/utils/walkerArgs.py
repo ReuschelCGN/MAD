@@ -230,10 +230,8 @@ def parse_args():
                         help='MADmin web port (Default: 5000)')
     parser.add_argument('-mus', '--madmin_unix_socket', required=False, default=None, type=str,
                         help="Path to unix socket file to use if TCP is not to be used for MADmin...")
-    parser.add_argument('-mmuser', '--madmin_user', default='',
-                        help='Username for MADmin Frontend.')
-    parser.add_argument('-mmpassword', '--madmin_password', default='',
-                        help='Password for MADmin Frontend.')
+    parser.add_argument('-mmauth', '--madmin_enable_auth', type=bool, default=False,
+                        help='Enable demanding of credentials based on settings_auth.')
     parser.add_argument('-mmt', '--madmin_time', default='24',
                         help='MADmin clock format (12/24) (Default: 24)')
     parser.add_argument('-mmnrsp', '--madmin_noresponsive', action='store_false', default=True,
@@ -365,9 +363,9 @@ def parse_args():
                               'MAD will search for the first IPv4 address via regex.'))
     parser.add_argument('-elt', '--enable_login_tracking', action='store_true', default=False,
                         help='Enable tracking of login attempts to PTC')
-    parser.add_argument('-lth', '--login_tracking_host', default='127.0.0.1',
+    parser.add_argument('-lth', '--login_tracking_host', type=str, default=None,
                         help='Redis cache host for login tracking. If not specified, it will use the cache_host set '
-                             'for general redis caching. (Default: 127.0.0.1).')
+                             'for general redis caching. (Default: None).')
     parser.add_argument('-ltp', '--login_tracking_port', default=6379,
                         help='Redis cache port. If not specified along with login_tracking_host, it will use the cache_'
                              'port and cache_host set for general redis caching. (Default: 6379).')
